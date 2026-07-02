@@ -621,10 +621,15 @@ surfaces). "No cards" / "no set" are outcomes.
 
 ## Performance budgets
 
-- `analyze` (warm engine): **≤ 2s** on a mid-tier phone for a 12–15
-  card tableau at the 3072 normalized frame. Ring-2 fixtures record
-  `timings` so regressions are visible; the budget is the acceptance
-  criterion for resolution/raster choices.
+- `analyze` (warm engine): **≤ 500ms typical, 1s hard ceiling** on a
+  mid-tier phone for a 12–15 card tableau at the 3072 normalized frame.
+  This is an estimate-backed budget (detection at 1024px is tens of ms;
+  ~15 warps to 600×384 at ~5ms each; segmentation and pure-TS pixel
+  stats a few ms per card), not aspiration — ring-2 fixtures record
+  `timings` per stage so the stage that blows it is visible, and the
+  budget is the acceptance criterion for resolution/raster choices.
+  A budget this size also keeps the live-mode door open (reduced-res
+  per-frame work must land well under it).
 - App JS bundle (excluding OpenCV artifacts): **≤ 200KB gzipped**.
 - OpenCV single-threaded WASM+JS: ~8–11MB, precached (see PWA).
 
