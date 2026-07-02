@@ -628,8 +628,14 @@ surfaces). "No cards" / "no set" are outcomes.
   stats a few ms per card), not aspiration — ring-2 fixtures record
   `timings` per stage so the stage that blows it is visible, and the
   budget is the acceptance criterion for resolution/raster choices.
-  A budget this size also keeps the live-mode door open (reduced-res
-  per-frame work must land well under it).
+  Live-mode note: this budget is a *still-path* cost at
+  quality-maximized settings — live mode does not run it per frame.
+  The live decomposition is: detection only per frame at reduced
+  resolution (target ≤ ~30–50ms — the `timings` instrumentation
+  verifies this scale early), classification amortized to
+  once-per-card via tracking-stable `CardId`s (unmoved cards keep
+  their reading), highlights following cheap per-frame quads. That is
+  what detect/classify separability and the id design exist for.
 - App JS bundle (excluding OpenCV artifacts): **≤ 200KB gzipped**.
 - OpenCV single-threaded WASM+JS: ~8–11MB, precached (see PWA).
 
