@@ -897,7 +897,7 @@ git add -A && git commit -m "Add perspective-robust quad corner ordering"
 
 **Files:**
 - Create: `bin/fetch-opencv.sh`, `public/vendor/` (vendored
-  `opencv-4.10.0.js`, committed), `src/vision/opencv/cv.ts`,
+  `opencv-4.13.0.js`, committed), `src/vision/opencv/cv.ts`,
   `src/vision/opencv/load-node.ts`, `src/vision/opencv/load-node.test.ts`
 - Modify: `test/setup.ts`
 
@@ -908,7 +908,7 @@ git add -A && git commit -m "Add perspective-robust quad corner ordering"
     (Plan B) never imports the Node loader
   - `loadOpenCv(): Promise<Cv>` (Node path; cached singleton)
   - global `ImageData` available in Node tests
-  - `OPENCV_VENDOR_FILE = "opencv-4.10.0.js"` exported for reuse
+  - `OPENCV_VENDOR_FILE = "opencv-4.13.0.js"` exported for reuse
 - Notes: the single-file official artifact embeds the WASM; it is the
   single-threaded build (GitHub Pages cannot serve COOP/COEP). The same
   vendored file serves browser loading in Plan B (streamed fetch +
@@ -924,7 +924,7 @@ git add -A && git commit -m "Add perspective-robust quad corner ordering"
 # Vendors the official single-file OpenCV.js build (WASM embedded,
 # single-threaded). Committed to git; rerun only to change versions.
 set -euo pipefail
-version="4.10.0"
+version="4.13.0"
 out="$(dirname "$0")/../public/vendor/opencv-${version}.js"
 mkdir -p "$(dirname "$out")"
 curl -fL "https://docs.opencv.org/${version}/opencv.js" -o "$out"
@@ -933,7 +933,7 @@ echo "vendored $out"
 ```
 
 Run: `chmod +x bin/fetch-opencv.sh && ./bin/fetch-opencv.sh`
-Expected: `public/vendor/opencv-4.10.0.js` exists (~10MB); note the
+Expected: `public/vendor/opencv-4.13.0.js` exists (~10MB); note the
 printed sha256 in the commit message for provenance.
 
 - [ ] **Step 2: Add the ImageData shim to test setup**
@@ -1012,7 +1012,7 @@ found).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Cv = any;
 
-export const OPENCV_VENDOR_FILE = "opencv-4.10.0.js";
+export const OPENCV_VENDOR_FILE = "opencv-4.13.0.js";
 ```
 
 `src/vision/opencv/load-node.ts`:
@@ -1051,7 +1051,7 @@ run takes several seconds for WASM init).
 
 ```bash
 git add -A
-git commit -m "Vendor OpenCV.js 4.10.0 single-threaded build with Node loader
+git commit -m "Vendor OpenCV.js 4.13.0 single-threaded build with Node loader
 
 sha256 <paste from fetch script output>"
 ```
@@ -3484,7 +3484,7 @@ git add -A && git commit -m "Add real-photo fixture harness with confusion repor
 - Ready for Plan B (worker + app + UI), which consumes:
   `createCardVision`, `loadOpenCv` (Node) / a browser loader it adds,
   `analyze`, `classifyCard`, the model types, `findSets`/`makeTableau`,
-  and the vendored `public/vendor/opencv-4.10.0.js`.
+  and the vendored `public/vendor/opencv-4.13.0.js`.
 - Open workstream (human, parallel): photograph real Set cards per the
   coverage matrix into `test/fixtures/{tuning,holdout}/`; expect
   constant re-tuning when the first real photos land — that is the
