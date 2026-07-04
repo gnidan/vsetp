@@ -25,3 +25,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# annotate.ts dev-tool output
+*-annotated.png
+*-draft.json
