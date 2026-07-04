@@ -14,11 +14,7 @@ function entriesOf(keys: string[]) {
 describe("findSets", () => {
   test("finds the one set in a three-card tableau", () => {
     const t = makeTableau(
-      entriesOf([
-        "1-red-oval-solid",
-        "2-red-oval-solid",
-        "3-red-oval-solid",
-      ]),
+      entriesOf(["1-red-oval-solid", "2-red-oval-solid", "3-red-oval-solid"]),
     );
     expect(findSets(t)).toEqual([[cardId(0), cardId(1), cardId(2)]]);
     expect(hasSet(t)).toBe(true);
@@ -26,11 +22,7 @@ describe("findSets", () => {
 
   test("finds no set when none exists", () => {
     const t = makeTableau(
-      entriesOf([
-        "1-red-oval-solid",
-        "2-red-oval-solid",
-        "3-green-oval-solid",
-      ]),
+      entriesOf(["1-red-oval-solid", "2-red-oval-solid", "3-green-oval-solid"]),
     );
     expect(findSets(t)).toEqual([]);
     expect(hasSet(t)).toBe(false);
