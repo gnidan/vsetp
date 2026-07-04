@@ -56,3 +56,17 @@ describe("detectCards (primary)", () => {
     expect(detectCards(cv, image)).toEqual([]);
   });
 });
+
+describe("detectCards (light-background fallback)", () => {
+  test("finds cards on a near-white table", async () => {
+    const { image, truth } = await renderTableau(allCards().slice(0, 9), {
+      background: "#e8e4da", // light tan, low contrast vs card white
+    });
+    const quads = detectCards(cv, image);
+    expect(quads).toHaveLength(9);
+    const truthCentroids = truth.map((t) => centroid(t.quad));
+    for (const quad of quads) {
+      expect(nearestDistance(centroid(quad), truthCentroids)).toBeLessThan(20);
+    }
+  });
+});

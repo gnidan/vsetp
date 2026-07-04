@@ -10,6 +10,10 @@ const SPLIT_EROSION = 2;
 const MIN_CARD_AREA_FRACTION = 0.003;
 const MAX_CARD_AREA_FRACTION = 0.25;
 const CARD_ASPECT_RANGE = { min: 1.2, max: 2.0 };
+// below this many quads, the primary (Otsu) path is assumed to have
+// failed to separate cards from the background, and the edge-based
+// fallback strategy is tried instead
+const MIN_PLAUSIBLE_CARDS = 3;
 
 interface Candidate {
   points: Point[]; // 4 corners, working scale
@@ -86,6 +90,37 @@ function grow(points: Point[], by: number): Point[] {
   });
 }
 
+// Edge-based fallback for white-cards-on-light-tables: card borders
+// survive as gradients even when no threshold separates the regions.
+function binaryFromEdges(cv: Cv, gray: Cv): Cv {
+  let edges: Cv = null;
+  let kernel: Cv = null;
+  let filled: Cv = null;
+  try {
+    edges = new cv.Mat();
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+    cv.Canny(gray, edges, 40, 120);
+    cv.dilate(edges, edges, kernel); // seal soft/broken card borders
+    // cards become rings; fill them so external contours are card blobs
+    filled = new cv.Mat();
+    cv.morphologyEx(
+      edges,
+      filled,
+      cv.MORPH_CLOSE,
+      kernel,
+      new cv.Point(-1, -1),
+      2,
+    );
+    const result = filled;
+    filled = null;
+    return result;
+  } finally {
+    filled?.delete();
+    kernel?.delete();
+    edges?.delete();
+  }
+}
+
 export function detectCards(
   cv: Cv,
   frame: ImageData,
@@ -95,12 +130,10 @@ export function detectCards(
   const scale = Math.min(1, maxDimension / Math.max(frame.width, frame.height));
   let src: Cv = null;
   let working: Cv = null;
-  let binary: Cv = null;
   let kernel: Cv = null;
   try {
     src = cv.matFromImageData(frame);
     working = new cv.Mat();
-    binary = new cv.Mat();
     kernel = cv.getStructuringElement(
       cv.MORPH_ELLIPSE,
       new cv.Size(2 * SPLIT_EROSION + 1, 2 * SPLIT_EROSION + 1),
@@ -117,10 +150,43 @@ export function detectCards(
       cv.INTER_AREA,
     );
     cv.cvtColor(working, working, cv.COLOR_RGBA2GRAY);
-    cv.threshold(working, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
-    cv.erode(binary, binary, kernel);
-    const candidates = candidatesFromBinary(cv, binary);
-    return candidates
+
+    const strategies = [
+      () => {
+        let binary: Cv = null;
+        try {
+          binary = new cv.Mat();
+          cv.threshold(
+            working,
+            binary,
+            0,
+            255,
+            cv.THRESH_BINARY + cv.THRESH_OTSU,
+          );
+          cv.erode(binary, binary, kernel);
+          const result = binary;
+          binary = null;
+          return result;
+        } finally {
+          binary?.delete();
+        }
+      },
+      () => binaryFromEdges(cv, working),
+    ];
+
+    let best: Candidate[] = [];
+    for (const strategy of strategies) {
+      const binary = strategy();
+      try {
+        const candidates = candidatesFromBinary(cv, binary);
+        if (candidates.length > best.length) best = candidates;
+      } finally {
+        binary.delete();
+      }
+      if (best.length >= MIN_PLAUSIBLE_CARDS) break;
+    }
+
+    return best
       .map((c) =>
         orderQuad(
           grow(c.points, SPLIT_EROSION).map((p) => ({
@@ -138,7 +204,6 @@ export function detectCards(
       });
   } finally {
     kernel?.delete();
-    binary?.delete();
     working?.delete();
     src?.delete();
   }
