@@ -2,11 +2,7 @@ import type { Quad } from "../../model";
 import { CARD_RASTER } from "../adapter";
 import type { Cv } from "./cv";
 
-export function rectifyCard(
-  cv: Cv,
-  frame: ImageData,
-  quad: Quad,
-): ImageData {
+export function rectifyCard(cv: Cv, frame: ImageData, quad: Quad): ImageData {
   const { width, height } = CARD_RASTER;
   let src: Cv = null;
   let srcCorners: Cv = null;

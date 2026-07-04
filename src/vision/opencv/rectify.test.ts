@@ -20,7 +20,7 @@ const CARD: Card = {
 };
 
 describe("rectifyCard", () => {
-  test("produces a CARD_RASTER-sized white card with centered ink", async () => {
+  test("produces a CARD_RASTER-sized card with centered ink", async () => {
     const { image, truth } = await renderTableau([CARD]);
     const raster = rectifyCard(cv, image, orderQuad([...truth[0].quad]));
     expect(raster.width).toBe(CARD_RASTER.width);
