@@ -1,0 +1,16 @@
+{
+  "cards": [
+    { "key": "1-green-squiggle-solid", "near": { "x": 1310, "y": 940 } },
+    { "key": "2-red-oval-open", "near": { "x": 1750, "y": 930 } },
+    { "key": "2-purple-diamond-solid", "near": { "x": 2190, "y": 930 } },
+    { "key": "1-purple-diamond-open", "near": { "x": 2640, "y": 920 } },
+    { "key": "1-red-diamond-solid", "near": { "x": 1280, "y": 1350 } },
+    { "key": "1-purple-oval-striped", "near": { "x": 1720, "y": 1340 } },
+    { "key": "2-green-squiggle-striped", "near": { "x": 2210, "y": 1320 } },
+    { "key": "1-red-oval-open", "near": { "x": 2800, "y": 1350 } },
+    { "key": "2-green-diamond-solid", "near": { "x": 1130, "y": 1870 } },
+    { "key": "2-purple-squiggle-solid", "near": { "x": 1580, "y": 1880 } },
+    { "key": "3-green-squiggle-striped", "near": { "x": 2130, "y": 1860 } },
+    { "key": "1-green-oval-striped", "near": { "x": 2880, "y": 1900 } }
+  ]
+}
