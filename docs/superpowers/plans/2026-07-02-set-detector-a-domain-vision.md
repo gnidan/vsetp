@@ -2174,10 +2174,12 @@ describe("polygonMask / erodeMask", () => {
   test("fills the interior, erosion shrinks it", () => {
     const mask = polygonMask(square, 12, 12);
     const count = mask.reduce((s: number, v) => s + v, 0);
-    expect(count).toBeGreaterThan(80);
-    expect(count).toBeLessThanOrEqual(121);
+    // center-sampling: pixel (x,y) filled iff center (x+.5,y+.5)
+    // is inside the polygon — exactly 0..9 x 0..9 for this square
+    expect(count).toBe(100);
     expect(mask[6 * 12 + 5]).toBe(1); // center inside
-    expect(mask[0]).toBe(0); // (0,0) corner boundary-ish
+    expect(mask[0]).toBe(1); // (0,0): center (0.5,0.5) inside
+    expect(mask[10 * 12 + 10]).toBe(0); // (10,10): center outside
     const eroded = erodeMask(mask, 12, 12, 2);
     const erodedCount = eroded.reduce((s: number, v) => s + v, 0);
     expect(erodedCount).toBeLessThan(count);
