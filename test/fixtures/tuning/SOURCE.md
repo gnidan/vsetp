@@ -1,5 +1,12 @@
 # Fixture provenance
 
+- `pic2934145.webp` — BoardGameGeek user-uploaded image (BGG image id
+  2934145), added 2026-07-05. 1600x1200, RED felt tablecloth
+  (white-balance stress case), whole tableau rotated ~30 degrees,
+  game boxes + deck stack top-right as distractors. 12 face-up cards,
+  labeled by hand. Judgment calls: the pale-tinted green/red ovals
+  read as striped (consistent with other low-res fixtures).
+
 - `pic1014255.webp` — BoardGameGeek user-uploaded image (BGG image id
   1014255), added 2026-07-05. 1200x900, dim warm light, blurry,
   landscape-oriented cards; includes a face-down SET card INSIDE the
