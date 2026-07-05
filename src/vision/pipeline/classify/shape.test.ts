@@ -30,20 +30,24 @@ describe("classifyShape", () => {
   });
 
   test("keeps confidence in 0..1 for a barely-convex 4-vertex region", () => {
-    // hand-built region: 4-vertex outline with solidity just above the
-    // 0.9 diamond gate (~0.905) — the diamond confidence formula is
-    // negative here unless clamped at 0
+    // hand-built region: rhombus outline (bbox fill 0.5, well inside
+    // the diamond band) with solidity just above the 0.9 gate. The
+    // raw diamond confidence exceeds 1 here unless clamped.
+    // (This fixture was an axis-aligned SQUARE before the tuning
+    // round; the bbox-fill discriminator added there — real stadium
+    // ovals also simplify to 4 vertices — correctly refuses to call
+    // a square a diamond, so the fixture became a true rhombus.)
     const outline = [
-      { x: 0, y: 0 },
-      { x: 100, y: 0 },
-      { x: 100, y: 100 },
-      { x: 0, y: 100 },
+      { x: 50, y: 0 },
+      { x: 100, y: 50 },
+      { x: 50, y: 100 },
+      { x: 0, y: 50 },
     ];
     const hull = [
-      { x: 0, y: 0 },
-      { x: 105.1, y: 0 },
-      { x: 105.1, y: 105.1 },
-      { x: 0, y: 105.1 },
+      { x: 50, y: -2.6 },
+      { x: 102.6, y: 50 },
+      { x: 50, y: 102.6 },
+      { x: -2.6, y: 50 },
     ];
     const result = classifyShape([{ outline, hull }]);
     expect(result.value).toBe("diamond");
