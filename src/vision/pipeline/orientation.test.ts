@@ -57,9 +57,51 @@ describe("isSideways", () => {
     expect(isSideways([rectRegion(300, 192, 120, 240)], RASTER)).toBe(false);
   });
 
-  test("single wider-than-tall symbol is sideways", () => {
-    // canonical 120x240 symbol box rotated 90 degrees
-    expect(isSideways([rectRegion(300, 192, 240, 120)], RASTER)).toBe(true);
+  test("single clearly-horizontal symbol is sideways", () => {
+    // what rectify produces for a sideways card: the symbol's long
+    // axis stretched across the raster width (measured ~385x83)
+    expect(isSideways([rectRegion(300, 192, 375, 77)], RASTER)).toBe(true);
+  });
+
+  test("single clearly-horizontal oval outline is sideways", () => {
+    // sampled ellipse, not just a bbox: principal axis horizontal
+    const outline = Array.from({ length: 24 }, (_, i) => {
+      const a = (2 * Math.PI * i) / 24;
+      return { x: 300 + 190 * Math.cos(a), y: 192 + 45 * Math.sin(a) };
+    });
+    expect(isSideways([{ outline, hull: outline }], RASTER)).toBe(true);
+  });
+
+  test("near-isotropic single region at mild skew does not flip", () => {
+    // a blurred squiggle can segment blob-like; under perspective
+    // skew its bbox can tip wider-than-tall (250x135 here — the old
+    // bbox-aspect rule flipped this), but its principal axis is too
+    // close to isotropic to trust — keep the geometric order
+    const c = { x: 300, y: 192 };
+    const rad = (8 * Math.PI) / 180;
+    const outline = [
+      { x: -125, y: -67.5 },
+      { x: 125, y: -67.5 },
+      { x: 125, y: 67.5 },
+      { x: -125, y: 67.5 },
+    ].map((p) => ({
+      x: c.x + p.x * Math.cos(rad) - p.y * Math.sin(rad),
+      y: c.y + p.x * Math.sin(rad) + p.y * Math.cos(rad),
+    }));
+    expect(isSideways([{ outline, hull: outline }], RASTER)).toBe(false);
+  });
+
+  test("debris does not pollute the row-axis vote", () => {
+    // pic2934145's 1-green-squiggle-open: a thin horizontal sliver
+    // (broken pale stroke) plus the real upright symbol used to read
+    // as a 2-region row spread along y and flip the card. The sliver
+    // fails the same area-consistency band classifyCount uses, so
+    // orientation must ignore it and read the symbol alone.
+    const regions = [
+      rectRegion(300, 350, 333, 20),
+      rectRegion(300, 190, 130, 260),
+    ];
+    expect(isSideways(regions, RASTER)).toBe(false);
   });
 
   test("no regions is not sideways", () => {
@@ -81,7 +123,7 @@ describe("orientQuad", () => {
   });
 
   test("rotates corner order by one position when sideways", () => {
-    const regions = [rectRegion(300, 192, 240, 120)];
+    const regions = [rectRegion(300, 192, 375, 77)];
     expect(orientQuad(quad, regions, RASTER)).toEqual([
       { x: 100, y: 0 },
       { x: 100, y: 60 },

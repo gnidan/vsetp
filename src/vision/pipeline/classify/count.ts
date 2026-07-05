@@ -7,8 +7,9 @@ import { polygonArea } from "../regions";
 // measured on the tuning fixtures: a dim symbol whose outline only
 // partially closes still reads 0.39 of the median area (pic1014255's
 // third purple squiggle) while true debris (broken-stroke fragments,
-// border bleed) measures 0.08-0.20.
-const AREA_CONSISTENCY = { min: 0.3, max: 1.8 };
+// border bleed) measures 0.08-0.20. Exported: orientation.ts applies
+// the same band so debris cannot pollute the orientation vote either.
+export const AREA_CONSISTENCY = { min: 0.3, max: 1.8 };
 
 export function classifyCount(regions: SymbolRegion[]): {
   value: Count;
