@@ -300,6 +300,19 @@ is a tally; color and fill are pixel statistics; shape uses
 rotation-invariant contour features), so the flip cannot affect a
 reading. `Quad`'s corner order is defined by this rule.
 
+The longest-edge rule is only a geometric first pass: a strongly
+foreshortened card (far table row, low camera angle) can measure its
+short physical edge longest and rectify sideways. Classification never
+notices, but overlays that project content back onto the quad would
+render 90° off. `analyze` therefore content-verifies each ordering
+after segmentation (`pipeline/orientation.ts`): if the symbol evidence
+says the raster is sideways (symbol-row centroids spread down the
+raster, or a lone symbol's bbox wider than tall), the output quad's
+corner ordering is rotated one position. The raster is **not**
+re-rectified — only the reported quad changes — and the surviving 180°
+ambiguity remains invisible because every Set glyph is
+180°-rotationally symmetric.
+
 ### Detection robustness (inside `vision/opencv/`)
 
 - **Primary path:** downscale to the detection scale, grayscale,

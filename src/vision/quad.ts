@@ -2,8 +2,12 @@ import type { Point, Quad } from "../model";
 
 // Order 4 corners: clockwise (screen coords) by angle about the
 // centroid, then rotated so the longest edge is (q[0] -> q[1]). This
-// fixes orientation up to a 180-degree flip, which classification is
-// deliberately invariant to (see spec).
+// is a GEOMETRIC first pass: under strong foreshortening the short
+// physical edge can measure longest, so analyze() content-verifies
+// the ordering against the segmented symbols afterward (see
+// pipeline/orientation.ts). Either way orientation stays fixed only
+// up to a 180-degree flip, which classification is deliberately
+// invariant to (see spec).
 export function orderQuad(points: Point[]): Quad {
   if (points.length !== 4) {
     throw new Error(`orderQuad needs 4 points, got ${points.length}`);

@@ -3,6 +3,7 @@ import { cardId } from "../../model";
 import type { CardVision, DetectOptions } from "../adapter";
 import { classifyCard } from "./classify";
 import { whiteBalanced } from "./classify/pixels";
+import { orientQuad } from "./orientation";
 
 export interface AnalyzeOutput {
   cards: DetectedCard[];
@@ -52,7 +53,16 @@ export function analyze(
     const { card, confidence } = classifyCard(raster, regions);
     const t4 = performance.now();
     timings.classify += t4 - t3;
-    cards.push({ id: cardId(cards.length), quad, card, confidence });
+    // content-verify the geometric corner ordering before reporting:
+    // a foreshortened card can rectify sideways (see orientation.ts).
+    // Classification already ran fine on the sideways raster, so only
+    // the OUTPUT quad is corrected — no re-rectification.
+    cards.push({
+      id: cardId(cards.length),
+      quad: orientQuad(quad, regions, raster),
+      card,
+      confidence,
+    });
   }
   return { cards, timings };
 }
