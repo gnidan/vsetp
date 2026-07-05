@@ -9,7 +9,12 @@ import type { Cv } from "./cv";
 const SPLIT_EROSION = 2;
 const MIN_CARD_AREA_FRACTION = 0.003;
 const MAX_CARD_AREA_FRACTION = 0.25;
-const CARD_ASPECT_RANGE = { min: 1.2, max: 2.0 };
+// physical card aspect is ~1.56, but perspective foreshortening moves
+// the measured minAreaRect aspect a long way in both directions:
+// tuning fixtures show real cards at 1.08 (pic1326145 near row, camera
+// close overhead) up to 2.24 (pic1014255 shallow oblique). Band is
+// those extremes plus a small margin.
+const CARD_ASPECT_RANGE = { min: 1.05, max: 2.35 };
 // below this many quads, the primary (Otsu) path is assumed to have
 // failed to separate cards from the background, and the edge-based
 // fallback strategy is tried instead
