@@ -9,8 +9,11 @@ import { writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import sharp from "sharp";
 import "../test/setup"; // installs Node's ImageData shim (rectifyCard needs it)
+import { renderCardRaster } from "../test/synthetic/render";
 import type { DetectedCard, Point, Quad } from "../src/model";
 import { cardKey } from "../src/model";
+import { CARD_RASTER } from "../src/vision/adapter";
+import type { Cv } from "../src/vision/opencv/cv";
 import { createCardVision } from "../src/vision/opencv";
 import { loadOpenCv } from "../src/vision/opencv/load-node";
 import { analyze } from "../src/vision/pipeline/analyze";
@@ -35,33 +38,126 @@ function centroid(quad: Quad): Point {
   return { x, y };
 }
 
-// heuristic label anchor: the quad corner closest to the image's
-// top-left, regardless of the pipeline's angle-based corner order
-function topLeft(quad: Quad): Point {
-  return quad.reduce((a, b) => (a.x + a.y <= b.x + b.y ? a : b));
+// spec: uncertain treatment is dashed (non-color), so a misread is
+// still readable by color-blind users through line style alone
+function isUncertain(c: DetectedCard): boolean {
+  const { count, color, shape, fill } = c.confidence;
+  return count < 0.5 || color < 0.5 || shape < 0.5 || fill < 0.5;
 }
 
+// thin quad outlines, dashed when any attribute confidence < 0.5;
+// text labels are gone — the ghost layer carries the reading now
 function svgOverlay(cards: DetectedCard[], width: number, height: number) {
-  const fontSize = Math.max(16, Math.round(width / 80));
   const shapes = cards.map((c) => {
     const points = c.quad.map((p) => `${p.x},${p.y}`).join(" ");
-    const label = `${c.id}: ${cardKey(c.card)}`;
-    const anchor = topLeft(c.quad);
-    const textY = Math.max(fontSize, anchor.y - 8);
-    const textWidth = Math.round(label.length * fontSize * 0.62);
-    return `
-      <polygon points="${points}" fill="none" stroke="cyan"
-        stroke-width="6" />
-      <rect x="${anchor.x}" y="${textY - fontSize}"
-        width="${textWidth}" height="${Math.round(fontSize * 1.3)}"
-        fill="black" fill-opacity="0.65" />
-      <text x="${anchor.x + 4}" y="${textY}" fill="cyan"
-        font-size="${fontSize}" font-family="monospace">${label}</text>`;
+    const dash = isUncertain(c) ? ` stroke-dasharray="24,14"` : "";
+    return (
+      `<polygon points="${points}" fill="none" stroke="cyan" ` +
+      `stroke-width="4"${dash} />`
+    );
   });
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
     `width="${width}" height="${height}">${shapes.join("")}</svg>`
   );
+}
+
+// Ghost opacity is applied here, before warping: each raster's alpha
+// channel is scaled to 65% up front, so warpPerspective's INTER_LINEAR
+// resampling blends the reduced alpha smoothly at the warped card
+// edges rather than uniformly dimming a hard-edged layer afterward.
+const GHOST_OPACITY = 0.65;
+
+function applyGhostAlpha(raster: ImageData): void {
+  const { data } = raster;
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = Math.round(data[i] * GHOST_OPACITY);
+  }
+}
+
+// Warps one idealized card face onto `layer` at `quad`. `layer` may
+// already hold previously-warped cards; cv.BORDER_TRANSPARENT leaves
+// destination pixels outside this card's quad untouched, so calling
+// this repeatedly with the same `layer` accumulates all cards onto
+// one shared transparent overlay.
+function warpGhostOnto(
+  cv: Cv,
+  layer: Cv,
+  raster: ImageData,
+  quad: Quad,
+  width: number,
+  height: number,
+): void {
+  let src: Cv = null;
+  let srcCorners: Cv = null;
+  let dstCorners: Cv = null;
+  let transform: Cv = null;
+  try {
+    src = cv.matFromImageData(raster);
+    // reverse mapping vs. rectifyCard: raster corners -> quad corners
+    srcCorners = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0,
+      0,
+      CARD_RASTER.width,
+      0,
+      CARD_RASTER.width,
+      CARD_RASTER.height,
+      0,
+      CARD_RASTER.height,
+    ]);
+    dstCorners = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      quad[0].x,
+      quad[0].y,
+      quad[1].x,
+      quad[1].y,
+      quad[2].x,
+      quad[2].y,
+      quad[3].x,
+      quad[3].y,
+    ]);
+    transform = cv.getPerspectiveTransform(srcCorners, dstCorners);
+    cv.warpPerspective(
+      src,
+      layer,
+      transform,
+      new cv.Size(width, height),
+      cv.INTER_LINEAR,
+      cv.BORDER_TRANSPARENT,
+      new cv.Scalar(),
+    );
+  } finally {
+    transform?.delete();
+    dstCorners?.delete();
+    srcCorners?.delete();
+    src?.delete();
+  }
+}
+
+// Idealized-card renderings, perspective-projected onto each
+// detection's quad and composed into one transparent full-frame RGBA
+// layer — misreads then show up as ghost-vs-photo mismatches.
+async function buildGhostLayer(
+  cv: Cv,
+  cards: DetectedCard[],
+  width: number,
+  height: number,
+): Promise<ImageData> {
+  let layer: Cv = null;
+  try {
+    layer = cv.Mat.zeros(height, width, cv.CV_8UC4);
+    for (const c of cards) {
+      const raster = await renderCardRaster(c.card);
+      applyGhostAlpha(raster);
+      warpGhostOnto(cv, layer, raster, c.quad, width, height);
+    }
+    return new ImageData(
+      new Uint8ClampedArray(layer.data.slice()),
+      width,
+      height,
+    );
+  } finally {
+    layer?.delete();
+  }
 }
 
 function printTimings(timings: Record<string, number>, total: number) {
@@ -110,10 +206,12 @@ async function main() {
     fail(`failed to decode ${photo}: ${(err as Error).message}`);
   }
 
+  let cv: Cv;
   let cards: DetectedCard[];
   let timings: Record<string, number>;
   try {
-    const vision = createCardVision(await loadOpenCv());
+    cv = await loadOpenCv();
+    const vision = createCardVision(cv);
     const t0 = performance.now();
     ({ cards, timings } = analyze(vision, image));
     printTimings(timings, performance.now() - t0);
@@ -123,10 +221,17 @@ async function main() {
 
   printCardTable(cards);
 
-  const svg = svgOverlay(cards, image.width, image.height);
+  const ghost = await buildGhostLayer(cv, cards, image.width, image.height);
+  const outline = svgOverlay(cards, image.width, image.height);
   await sharp(photo)
     .rotate()
-    .composite([{ input: Buffer.from(svg) }])
+    .composite([
+      {
+        input: Buffer.from(ghost.data),
+        raw: { width: ghost.width, height: ghost.height, channels: 4 },
+      },
+      { input: Buffer.from(outline) },
+    ])
     .toFile(outPath);
   console.log(`wrote ${outPath}`);
 
