@@ -23,14 +23,39 @@ function symbolShape(shape: Shape): string {
         `A ${w / 2} ${w / 2} 0 0 1 0 ${h - w / 2} L 0 ${w / 2} ` +
         `A ${w / 2} ${w / 2} 0 0 1 ${w / 2} 0 Z`
       );
-    case "squiggle":
-      // smooth pinched (non-convex) stand-in: what the shape
-      // classifier keys on is convexity defects vs. smooth ovals
+    case "squiggle": {
+      // tilde-like S-wave running along the box's long axis, matching
+      // the real Set glyph (measured on pic1326145's rectified
+      // squiggles: solidity ~0.85, defect ratio ~0.17, bbox fill
+      // ~0.73-0.77): a thick stroke whose centerline swings left then
+      // right (top lobe LEFT, bottom lobe RIGHT — the real glyph's
+      // chirality, so ghost overlays trace the actual ink), leaving
+      // one deep concavity on each side. 180-degree rotationally
+      // symmetric; smooth, unbroken, non-convex.
+      const cx = w / 2;
+      const t = 0.35 * w; // half stroke thickness
+      const a = 0.125 * w; // wave amplitude (centerline swing)
+      const b = (4 / 3) * a; // cubic ctrl offset: curve peaks at a
+      const top = 0.14 * h;
+      const bottom = h - top;
+      const mid = h / 2;
+      const cap = t; // end-cap ctrl offset (depth 0.75*cap)
+      const y1 = top + (mid - top) / 3;
+      const y2 = top + (2 * (mid - top)) / 3;
+      const y3 = mid + (bottom - mid) / 3;
+      const y4 = mid + (2 * (bottom - mid)) / 3;
+      const r = cx + t; // right edge at centerline crossings
+      const l = cx - t; // left edge at centerline crossings
       return (
-        `M 60 10 C 105 10 120 55 100 85 C 88 103 88 137 100 155 ` +
-        `C 120 185 105 230 60 230 C 15 230 0 185 20 155 ` +
-        `C 32 137 32 103 20 85 C 0 55 15 10 60 10 Z`
+        `M ${r} ${top} ` +
+        `C ${r - b} ${y1} ${r - b} ${y2} ${r} ${mid} ` +
+        `C ${r + b} ${y3} ${r + b} ${y4} ${r} ${bottom} ` +
+        `C ${r} ${bottom + cap} ${l} ${bottom + cap} ${l} ${bottom} ` +
+        `C ${l + b} ${y4} ${l + b} ${y3} ${l} ${mid} ` +
+        `C ${l - b} ${y2} ${l - b} ${y1} ${l} ${top} ` +
+        `C ${l} ${top - cap} ${r} ${top - cap} ${r} ${top} Z`
       );
+    }
   }
 }
 
