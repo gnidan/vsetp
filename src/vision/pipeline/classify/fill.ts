@@ -5,12 +5,32 @@ import { rgbAt, saturationOf, whiteBalance } from "./pixels";
 
 // erosion iterations to get past the outline stroke + anti-aliasing
 const STROKE_EROSION = 8;
-const MIN_INK_SATURATION = 0.25;
-// ink-fraction decision bands (tuned against fixtures)
+// Ink gate for the interior scan. Real stripes blur far below the
+// stroke's saturation: measured stripe pixels on pic1326145 sit at
+// S 0.10-0.20 while the old 0.25 gate saw striped interiors as
+// 0.01-0.02 ink fraction — indistinguishable from open.
+const FILL_INK_SATURATION = 0.1;
+
+// Decision bands, all measured across the four tuning fixtures:
+//
+// ink fraction at the gate above:
+//   solid + unresolved-striped read 0.75-1.00; resolved stripes read
+//   0.14-0.19; open reads 0.00-0.09 on clean photos but up to 0.33 on
+//   chroma-bleeding webp (halo hugs the stroke) — which is why a mid
+//   fraction alone must NOT mean striped (transitions confirm).
 const SOLID_MIN = 0.75;
-const OPEN_MAX = 0.15;
-// striped confirmation: mean saturated<->white transitions per row
+// striped-vs-open fraction floor: measured striped >= 0.14, the
+// noisiest open (which also alternates, trans 2.5) at 0.07
+const STRIPED_MIN_FRACTION = 0.11;
+// striped confirmation: mean ink<->white transitions per row.
+// measured striped 2.4-5.1, open <= 1.9
 const STRIPED_MIN_TRANSITIONS = 2;
+// solid-vs-unresolved-tint split when the whole interior gates as
+// ink: below CARD_RASTER resolution stripes melt into a uniform pale
+// tint. Measured interior median saturation: real solids 0.53-1.00,
+// tinted striped 0.12-0.21 (cards flagged as striped-by-judgment in
+// SOURCE.md read exactly here).
+const SOLID_MEDIAN_SATURATION = 0.35;
 
 export function classifyFill(
   raster: ImageData,
@@ -33,6 +53,7 @@ export function classifyFill(
   let total = 0;
   let transitions = 0;
   let rows = 0;
+  const saturations: number[] = [];
   for (let y = 0; y < height; y++) {
     let previous: boolean | undefined;
     let rowHasInterior = false;
@@ -46,7 +67,9 @@ export function classifyFill(
       }
       rowHasInterior = true;
       const [r, g, b] = rgbAt(raster, i, gains);
-      const isInk = saturationOf(r, g, b) >= MIN_INK_SATURATION;
+      const saturation = saturationOf(r, g, b);
+      saturations.push(saturation);
+      const isInk = saturation >= FILL_INK_SATURATION;
       total++;
       if (isInk) inked++;
       if (previous !== undefined && isInk !== previous) rowTransitions++;
@@ -61,28 +84,41 @@ export function classifyFill(
 
   const inkFraction = inked / total;
   const meanTransitions = rows ? transitions / rows : 0;
+  const median = saturations.sort((a, b) => a - b)[
+    Math.floor(saturations.length / 2)
+  ];
 
   if (inkFraction >= SOLID_MIN) {
+    if (median >= SOLID_MEDIAN_SATURATION) {
+      return {
+        value: "solid",
+        confidence: Math.min(1, (median - SOLID_MEDIAN_SATURATION) * 3 + 0.4),
+      };
+    }
+    // whole interior gates as ink but far paler than real ink:
+    // stripes below raster resolution (see SOLID_MEDIAN_SATURATION)
     return {
-      value: "solid",
-      confidence: Math.min(1, (inkFraction - SOLID_MIN) * 3 + 0.4),
+      value: "striped",
+      confidence: Math.min(1, (SOLID_MEDIAN_SATURATION - median) * 3 + 0.2),
     };
   }
-  if (inkFraction <= OPEN_MAX) {
-    return {
-      value: "open",
-      confidence: Math.min(1, (OPEN_MAX - inkFraction) * 4 + 0.4),
-    };
-  }
-  // mid ink-fraction: striped iff the interior actually alternates
-  if (meanTransitions >= STRIPED_MIN_TRANSITIONS) {
+  if (
+    inkFraction >= STRIPED_MIN_FRACTION &&
+    meanTransitions >= STRIPED_MIN_TRANSITIONS
+  ) {
+    // resolved stripes: the interior actually alternates
     return {
       value: "striped",
       confidence: Math.min(1, meanTransitions / 8 + 0.3),
     };
   }
-  // ambiguous: mid fraction but no alternation — lean by proximity
-  const value: Fill =
-    inkFraction > (SOLID_MIN + OPEN_MAX) / 2 ? "solid" : "open";
-  return { value, confidence: 0.2 };
+  if (inkFraction < STRIPED_MIN_FRACTION) {
+    return {
+      value: "open",
+      confidence: Math.min(1, (STRIPED_MIN_FRACTION - inkFraction) * 4 + 0.4),
+    };
+  }
+  // mid fraction without alternation: chroma halo around an open
+  // symbol's stroke (measured up to 0.33 on pic2934145), not stripes
+  return { value: "open", confidence: 0.3 };
 }
