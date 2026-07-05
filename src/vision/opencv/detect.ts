@@ -26,6 +26,17 @@ const STEEP_ASPECT_MAX = 5.0;
 // separate cards from the background, and the next one is tried
 const MIN_PLAUSIBLE_CARDS = 3;
 
+// One-nicked-corner rescue: a card whose contour approximates to 5
+// vertices (a corner clipped by shadow or frame edge) still fills its
+// minAreaRect almost completely — measured 0.97 on pic2934145's
+// rotated squiggle card vs <= 0.78 for every junk blob (deck stacks,
+// logo boxes) across the fixtures. Such blobs are accepted with the
+// rect corners as the quad. Applies at the GLOBAL aspect band only
+// (never the steep ceiling): overlapped card pairs are also
+// rectangular, and the rescue must not admit them as single cards.
+const NICKED_RECT_VERTICES = 5;
+const NICKED_MIN_RECT_FILL = 0.9;
+
 // cluster splitting: a rejected blob at least this many card-minimums
 // in area may be several cards merged across a narrow gap or an
 // incomplete edge cut; it is re-eroded in SPLIT_STEP increments until
@@ -84,6 +95,39 @@ function evaluateContour(
             y: approx.data32S[p * 2 + 1],
           });
         }
+        return { kind: "card", points };
+      }
+    }
+    if (
+      area <= imageArea * MAX_CARD_AREA_FRACTION &&
+      approx.rows === NICKED_RECT_VERTICES
+    ) {
+      // see NICKED_RECT_VERTICES: one clipped corner, near-perfect
+      // rect fill — take the minAreaRect corners as the quad
+      const rect = cv.minAreaRect(approx);
+      const long = Math.max(rect.size.width, rect.size.height);
+      const short = Math.min(rect.size.width, rect.size.height);
+      const aspect = long / Math.max(short, 1);
+      const rectFill = area / Math.max(long * short, 1);
+      if (
+        rectFill >= NICKED_MIN_RECT_FILL &&
+        aspect >= CARD_ASPECT_RANGE.min &&
+        aspect <= CARD_ASPECT_RANGE.max
+      ) {
+        const radians = (rect.angle * Math.PI) / 180;
+        const cos = Math.cos(radians);
+        const sin = Math.sin(radians);
+        const hw = rect.size.width / 2;
+        const hh = rect.size.height / 2;
+        const points = [
+          { x: -hw, y: -hh },
+          { x: hw, y: -hh },
+          { x: hw, y: hh },
+          { x: -hw, y: hh },
+        ].map((p) => ({
+          x: rect.center.x + p.x * cos - p.y * sin,
+          y: rect.center.y + p.x * sin + p.y * cos,
+        }));
         return { kind: "card", points };
       }
     }

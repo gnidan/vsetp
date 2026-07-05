@@ -44,6 +44,12 @@ const OPEN_MIN_LUMA_RATIO = 0.96;
 // 1-pixel interior read 0.55 and flip to striped). Whole-symbol
 // interiors measure >= 0.048 of the raster.
 const MIN_LUMA_SAMPLE_FRACTION = 0.01;
+// Conversely a striped verdict needs a TRUSTED border: an interior
+// measurably BRIGHTER than the card's own border ring means the quad
+// overshot the card and the ring includes table/shadow (pic2934145's
+// frame-edge card measured 1.25), so row alternation there is shadow
+// noise. Real striped interiors measure 0.86-0.94 of border white.
+const STRIPED_MAX_LUMA_RATIO = 1.05;
 // fraction of the raster edge treated as known-white card border
 // (mirrors whiteBalance's reference ring)
 const BORDER_RING = 0.05;
@@ -149,7 +155,13 @@ export function classifyFill(
       };
     }
     // whole interior gates as ink but far paler than real ink:
-    // stripes below raster resolution (see SOLID_MEDIAN_SATURATION)
+    // stripes below raster resolution (see SOLID_MEDIAN_SATURATION).
+    // Unless the border is untrusted (see STRIPED_MAX_LUMA_RATIO):
+    // then the "tint" is off-card shadow cast, not stripe ink —
+    // measured tint-striped cards sit at luma ratio 0.86-0.91.
+    if (lumaRatio > STRIPED_MAX_LUMA_RATIO) {
+      return { value: "open", confidence: 0.3 };
+    }
     return {
       value: "striped",
       confidence: Math.min(1, (SOLID_MEDIAN_SATURATION - median) * 3 + 0.2),
@@ -157,7 +169,8 @@ export function classifyFill(
   }
   if (
     inkFraction >= STRIPED_MIN_FRACTION &&
-    meanTransitions >= STRIPED_MIN_TRANSITIONS
+    meanTransitions >= STRIPED_MIN_TRANSITIONS &&
+    lumaRatio <= STRIPED_MAX_LUMA_RATIO
   ) {
     // resolved stripes: the interior actually alternates
     return {
