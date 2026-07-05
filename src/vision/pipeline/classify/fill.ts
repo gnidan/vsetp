@@ -31,6 +31,43 @@ const STRIPED_MIN_TRANSITIONS = 2;
 // tinted striped 0.12-0.21 (cards flagged as striped-by-judgment in
 // SOURCE.md read exactly here).
 const SOLID_MEDIAN_SATURATION = 0.35;
+// Desaturated-stripe rescue: some striped cards print as fine GRAY
+// lines (pic1326145's purple striped oval reads 0.00 ink fraction at
+// any saturation gate) but still darken the interior. Median interior
+// luma relative to the card's border white, measured across all four
+// fixtures: open 0.985-1.03, striped (resolved, unresolved, or
+// desaturated) 0.86-0.94, solid 0.40-0.55. An "open" verdict with a
+// ratio at or below this bound is actually striped.
+const OPEN_MIN_LUMA_RATIO = 0.96;
+// ...but only when the interior sample is real: a fragmented region's
+// eroded interior can be a handful of stroke pixels (pic1014255 had a
+// 1-pixel interior read 0.55 and flip to striped). Whole-symbol
+// interiors measure >= 0.048 of the raster.
+const MIN_LUMA_SAMPLE_FRACTION = 0.01;
+// fraction of the raster edge treated as known-white card border
+// (mirrors whiteBalance's reference ring)
+const BORDER_RING = 0.05;
+
+function borderLuma(
+  raster: ImageData,
+  gains: [number, number, number],
+): number {
+  const { width, height } = raster;
+  const rx = Math.max(2, Math.round(width * BORDER_RING));
+  const ry = Math.max(2, Math.round(height * BORDER_RING));
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < height; y++) {
+    const inBorderRow = y < ry || y >= height - ry;
+    for (let x = 0; x < width; x++) {
+      if (!inBorderRow && x >= rx && x < width - rx) continue;
+      const [r, g, b] = rgbAt(raster, y * width + x, gains);
+      sum += (r + g + b) / 3;
+      n++;
+    }
+  }
+  return n ? sum / n : 0;
+}
 
 export function classifyFill(
   raster: ImageData,
@@ -54,6 +91,7 @@ export function classifyFill(
   let transitions = 0;
   let rows = 0;
   const saturations: number[] = [];
+  const lumas: number[] = [];
   for (let y = 0; y < height; y++) {
     let previous: boolean | undefined;
     let rowHasInterior = false;
@@ -69,6 +107,7 @@ export function classifyFill(
       const [r, g, b] = rgbAt(raster, i, gains);
       const saturation = saturationOf(r, g, b);
       saturations.push(saturation);
+      lumas.push((r + g + b) / 3);
       const isInk = saturation >= FILL_INK_SATURATION;
       total++;
       if (isInk) inked++;
@@ -87,6 +126,20 @@ export function classifyFill(
   const median = saturations.sort((a, b) => a - b)[
     Math.floor(saturations.length / 2)
   ];
+  const medianLuma = lumas.sort((a, b) => a - b)[Math.floor(lumas.length / 2)];
+  const white = borderLuma(raster, gains);
+  const lumaRatio = white > 0 ? medianLuma / white : 1;
+  // an "open" verdict is only trusted if the interior is as bright as
+  // the card border; darker means desaturated stripes (see
+  // OPEN_MIN_LUMA_RATIO)
+  const open = (confidence: number): { value: Fill; confidence: number } =>
+    lumaRatio <= OPEN_MIN_LUMA_RATIO &&
+    lumas.length >= raster.width * raster.height * MIN_LUMA_SAMPLE_FRACTION
+      ? {
+          value: "striped",
+          confidence: Math.min(1, (OPEN_MIN_LUMA_RATIO - lumaRatio) * 8 + 0.3),
+        }
+      : { value: "open", confidence };
 
   if (inkFraction >= SOLID_MIN) {
     if (median >= SOLID_MEDIAN_SATURATION) {
@@ -113,12 +166,9 @@ export function classifyFill(
     };
   }
   if (inkFraction < STRIPED_MIN_FRACTION) {
-    return {
-      value: "open",
-      confidence: Math.min(1, (STRIPED_MIN_FRACTION - inkFraction) * 4 + 0.4),
-    };
+    return open(Math.min(1, (STRIPED_MIN_FRACTION - inkFraction) * 4 + 0.4));
   }
   // mid fraction without alternation: chroma halo around an open
   // symbol's stroke (measured up to 0.33 on pic2934145), not stripes
-  return { value: "open", confidence: 0.3 };
+  return open(0.3);
 }
