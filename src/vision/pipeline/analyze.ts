@@ -2,6 +2,7 @@ import type { DetectedCard } from "../../model";
 import { cardId } from "../../model";
 import type { CardVision, DetectOptions } from "../adapter";
 import { classifyCard } from "./classify";
+import { whiteBalanced } from "./classify/pixels";
 
 export interface AnalyzeOutput {
   cards: DetectedCard[];
@@ -28,7 +29,10 @@ export function analyze(
 
   const cards: DetectedCard[] = quads.map((quad, index) => {
     const t1 = performance.now();
-    const raster = vision.rectifyCard(frame, quad);
+    // white-balance the rectified card against its own border before
+    // segmentation: under warm light the unbalanced card face is
+    // saturated enough to read as ink (see whiteBalanced)
+    const raster = whiteBalanced(vision.rectifyCard(frame, quad));
     const t2 = performance.now();
     const regions = vision.segmentSymbols(raster);
     const t3 = performance.now();

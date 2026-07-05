@@ -33,6 +33,24 @@ export function whiteBalance(raster: ImageData): [number, number, number] {
   return [luma / (r || 1), luma / (g || 1), luma / (b || 1)];
 }
 
+// A copy of the raster with border-ring white balance baked in. Under
+// warm light the card FACE itself is saturated (measured HSV S of
+// 60-90 on pic2934145 rasters), which swamps any absolute
+// ink-saturation threshold downstream; balancing against the card's
+// own white border restores "card face = neutral" for segmentation
+// and classification alike.
+export function whiteBalanced(raster: ImageData): ImageData {
+  const gains = whiteBalance(raster);
+  const data = new Uint8ClampedArray(raster.data.length);
+  for (let i = 0; i < raster.data.length; i += 4) {
+    data[i] = raster.data[i] * gains[0];
+    data[i + 1] = raster.data[i + 1] * gains[1];
+    data[i + 2] = raster.data[i + 2] * gains[2];
+    data[i + 3] = raster.data[i + 3];
+  }
+  return new ImageData(data, raster.width, raster.height);
+}
+
 export function rgbAt(
   raster: ImageData,
   pixelIndex: number,
