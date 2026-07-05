@@ -8,8 +8,12 @@ const INK: Record<Color, string> = {
   purple: "#6a2c91",
 };
 
-// symbol box; short axis 120 => stripe spacing 14 ~= 8 stripe pairs
-const SYMBOL = { width: 120, height: 240 };
+// symbol box + row gap, matched to real cards (measured on
+// pic1326145's rectified faces: symbol boxes ~126-136 x 245-269,
+// symbol centroid pitch ~157-176) so ghost overlays trace the real
+// ink; short axis 128 => stripe spacing 14 ~= 9 stripe pairs
+const SYMBOL = { width: 128, height: 260 };
+const SYMBOL_GAP = 32; // centroid pitch 160
 
 function symbolShape(shape: Shape): string {
   const { width: w, height: h } = SYMBOL;
@@ -87,7 +91,7 @@ function stripePattern(patternId: string, color: Color): string {
 function cardFaceSvg(card: Card, height: number): string {
   const patternId = `stripe-${card.color}`;
   const scale = height / (CARD_RASTER.height as number);
-  const gap = 24;
+  const gap = SYMBOL_GAP;
   const rowWidth = card.count * SYMBOL.width + (card.count - 1) * gap;
   const symbols: string[] = [];
   for (let i = 0; i < card.count; i++) {
