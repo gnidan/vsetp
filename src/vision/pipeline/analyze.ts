@@ -27,7 +27,10 @@ export function analyze(
   const quads = vision.detectCards(frame, options);
   timings.detect = performance.now() - t0;
 
-  const cards: DetectedCard[] = quads.map((quad, index) => {
+  // a loop (not .map) because output length can differ from
+  // quads.length: zero-region quads are skipped below
+  const cards: DetectedCard[] = [];
+  for (const quad of quads) {
     const t1 = performance.now();
     // white-balance the rectified card against its own border before
     // segmentation: under warm light the unbalanced card face is
@@ -36,12 +39,20 @@ export function analyze(
     const t2 = performance.now();
     const regions = vision.segmentSymbols(raster);
     const t3 = performance.now();
-    const { card, confidence } = classifyCard(raster, regions);
-    const t4 = performance.now();
     timings.rectify += t2 - t1;
     timings.segment += t3 - t2;
+    if (regions.length === 0) {
+      // Zero symbol regions means a card-shaped object with no card
+      // face (face-down card, blank card, box lid) — reporting it
+      // would feed an all-zero-confidence phantom card to the set
+      // solver. Skip the quad entirely: no DetectedCard, no CardId
+      // consumed (ids stay sequential over kept cards only).
+      continue;
+    }
+    const { card, confidence } = classifyCard(raster, regions);
+    const t4 = performance.now();
     timings.classify += t4 - t3;
-    return { id: cardId(index), quad, card, confidence };
-  });
+    cards.push({ id: cardId(cards.length), quad, card, confidence });
+  }
   return { cards, timings };
 }

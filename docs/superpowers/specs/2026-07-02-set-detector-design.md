@@ -379,6 +379,14 @@ adapter involvement:
 - **confidence** — per-attribute decision margins, normalized
   per-attribute against fixture-derived scales (see Domain model note).
 
+`analyze` drops detections whose segmentation yields zero symbol
+regions: face-down cards and other card-shaped non-faces (a blank
+card, a box lid) are common on real tables, and reporting one would
+hand the solver a phantom card with no attributes to speak of. This is
+distinct from a genuinely unreadable card *face*, which still has
+symbol regions and surfaces normally, just with low per-attribute
+confidence.
+
 `classify` is a natural second seam: if classification ever goes ML,
 the seam is the classify *stage boundary* (an ML variant would take the
 raster alone and drop the `symbols` argument). That interface is not

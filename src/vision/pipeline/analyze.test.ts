@@ -76,4 +76,32 @@ describe("analyze end-to-end (synthetic)", () => {
       expect(timings[stage]).toBeGreaterThanOrEqual(0);
     }
   }, 60_000);
+
+  test("drops face-down/blank cards instead of phantom-detecting them", async () => {
+    const dealt = allCards().slice(0, 6);
+    const { image, truth } = await renderTableau(dealt, { blanks: 2 });
+
+    const { cards } = analyze(vision, image);
+    expect(cards).toHaveLength(6);
+
+    for (const detected of cards) {
+      const c = centroid(detected.quad);
+      const nearest = truth.reduce((a, b) => {
+        const da = Math.hypot(
+          centroid(a.quad).x - c.x,
+          centroid(a.quad).y - c.y,
+        );
+        const db = Math.hypot(
+          centroid(b.quad).x - c.x,
+          centroid(b.quad).y - c.y,
+        );
+        return da <= db ? a : b;
+      });
+      expect(cardKey(detected.card)).toBe(cardKey(nearest.card));
+    }
+
+    // ids stay sequential over kept cards only, no gaps for the
+    // skipped blanks
+    expect(cards.map((c) => c.id)).toEqual([0, 1, 2, 3, 4, 5]);
+  }, 60_000);
 });

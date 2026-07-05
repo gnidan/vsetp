@@ -120,6 +120,21 @@ export interface TableauOptions {
   height?: number;
   background?: string;
   rotate?: boolean;
+  blanks?: number;
+}
+
+// A card-shaped face with no symbols: stands in for a face-down card,
+// a blank card, or a box lid — anything the detector might find that
+// has no readable symbols. Deliberately excluded from `truth`:
+// analyze() must not surface it as a detected card.
+function blankFaceSvg(height: number): string {
+  const scale = height / (CARD_RASTER.height as number);
+  return (
+    `<g transform="scale(${scale})">` +
+    `<rect width="${CARD_RASTER.width}" height="${CARD_RASTER.height}" ` +
+    `rx="18" fill="#fdfdf8"/>` +
+    `</g>`
+  );
 }
 
 function rotatedQuad(
@@ -147,22 +162,31 @@ export async function renderTableau(
   const height = options.height ?? 1200;
   const background = options.background ?? "#2e6b4f";
   const rotate = options.rotate ?? true;
+  const blanks = options.blanks ?? 0;
   const cardH = 192;
   const cardW = cardH * (CARD_RASTER.width / CARD_RASTER.height);
   const columns = 4;
+  const total = cards.length + blanks;
   const gapX = (width - columns * cardW) / (columns + 1);
-  const rows = Math.ceil(cards.length / columns);
+  const rows = Math.ceil(total / columns);
   const gapY = (height - rows * cardH) / (rows + 1);
 
-  const pieces: string[] = [];
-  const truth: TruthCard[] = [];
-  cards.forEach((card, i) => {
+  // shared grid placement so blanks slot into the same layout as the
+  // real cards, just later in reading order
+  const placeAt = (i: number) => {
     const col = i % columns;
     const row = Math.floor(i / columns);
     const x = gapX + col * (cardW + gapX);
     const y = gapY + row * (cardH + gapY);
     // deterministic pseudo-random rotation, +-6 degrees
     const degrees = rotate ? ((i * 37) % 13) - 6 : 0;
+    return { x, y, degrees };
+  };
+
+  const pieces: string[] = [];
+  const truth: TruthCard[] = [];
+  cards.forEach((card, i) => {
+    const { x, y, degrees } = placeAt(i);
     pieces.push(
       `<g transform="translate(${x} ${y}) ` +
         `rotate(${degrees} ${cardW / 2} ${cardH / 2})">` +
@@ -171,6 +195,18 @@ export async function renderTableau(
     );
     truth.push({ card, quad: rotatedQuad(x, y, cardW, cardH, degrees) });
   });
+
+  // blank distractor faces, appended after the real cards and placed
+  // in the same grid; NOT added to `truth` (see blankFaceSvg)
+  for (let j = 0; j < blanks; j++) {
+    const { x, y, degrees } = placeAt(cards.length + j);
+    pieces.push(
+      `<g transform="translate(${x} ${y}) ` +
+        `rotate(${degrees} ${cardW / 2} ${cardH / 2})">` +
+        blankFaceSvg(cardH) +
+        `</g>`,
+    );
+  }
 
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
