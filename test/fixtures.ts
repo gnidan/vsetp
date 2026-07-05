@@ -21,8 +21,8 @@ export async function loadFixtures(
     return [];
   }
   const names = entries
-    .filter((f) => /\.(jpe?g|png)$/i.test(f))
-    .map((f) => f.replace(/\.(jpe?g|png)$/i, ""))
+    .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
+    .map((f) => f.replace(/\.(jpe?g|png|webp)$/i, ""))
     // bin/annotate.ts drops "<name>-annotated.png" dev-tool output
     // alongside the source photo (see .gitignore); skip any image
     // without a matching label sidecar rather than treat it as a
