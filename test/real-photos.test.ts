@@ -9,10 +9,15 @@ import { loadFixtures } from "./fixtures";
 
 const ATTRIBUTES = ["count", "color", "shape", "fill"] as const;
 
-// max label-to-detection distance, px in image coords; beyond this a
-// label counts as a miss ("MISSING" column in the confusion matrix)
-// rather than pairing with some unrelated detection across the frame
-const MATCH_RADIUS = 250;
+// max label-to-detection distance as a fraction of the image
+// diagonal; beyond this a label counts as a miss ("MISSING" column in
+// the confusion matrix) rather than pairing with some unrelated
+// detection across the frame. 0.05 reproduces the original 250px
+// radius on the 4000x3000 fixture it was calibrated against and
+// scales down for the 1200-1600px webp fixtures (75-100px), whose
+// card pitch is ~250px — an absolute 250 could pair a label with a
+// neighboring card's detection there.
+const MATCH_RADIUS_FRACTION = 0.05;
 
 for (const dir of ["tuning", "holdout"] as const) {
   const fixtures = process.env.REAL_PHOTOS ? await loadFixtures(dir) : [];
@@ -34,6 +39,9 @@ for (const dir of ["tuning", "holdout"] as const) {
           fixture.name,
           () => {
             const { cards } = analyze(vision, fixture.image);
+            const matchRadius =
+              Math.hypot(fixture.image.width, fixture.image.height) *
+              MATCH_RADIUS_FRACTION;
             // soft: a wrong card count still fails the test, but the
             // per-card loop below must run so the confusion matrices
             // always print — they are the tuning task's input
@@ -66,7 +74,7 @@ for (const dir of ["tuning", "holdout"] as const) {
                 }
               }
               const labelCard = cardFromKey(label.key);
-              if (!nearest || nearestDistance > MATCH_RADIUS) {
+              if (!nearest || nearestDistance > matchRadius) {
                 // miss: no unclaimed detection close enough; show it
                 // as a "MISSING" column per attribute
                 for (const attr of ATTRIBUTES) {
@@ -79,7 +87,7 @@ for (const dir of ["tuning", "holdout"] as const) {
                   .soft(
                     null,
                     `${fixture.name}: no detection within ` +
-                      `${MATCH_RADIUS}px of ${label.key} at ` +
+                      `${Math.round(matchRadius)}px of ${label.key} at ` +
                       `${label.near.x},${label.near.y}`,
                   )
                   .toBe(label.key);
