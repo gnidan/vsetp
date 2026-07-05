@@ -31,11 +31,13 @@ function symbolShape(shape: Shape): string {
       // tilde-like S-wave running along the box's long axis, matching
       // the real Set glyph (measured on pic1326145's rectified
       // squiggles: solidity ~0.85, defect ratio ~0.17, bbox fill
-      // ~0.73-0.77): a thick stroke whose centerline swings left then
-      // right (top lobe LEFT, bottom lobe RIGHT — the real glyph's
-      // chirality, so ghost overlays trace the actual ink), leaving
-      // one deep concavity on each side. 180-degree rotationally
-      // symmetric; smooth, unbroken, non-convex.
+      // ~0.73-0.77): a thick stroke whose centerline swings right
+      // then left going down the box — the real glyph's chirality,
+      // verified by alpha-blending this raster over a real rectified
+      // squiggle card (the mirrored variant interleaves with the ink
+      // instead of tracing it) — leaving one deep concavity on each
+      // side. 180-degree rotationally symmetric; smooth, unbroken,
+      // non-convex.
       const cx = w / 2;
       const t = 0.35 * w; // half stroke thickness
       const a = 0.125 * w; // wave amplitude (centerline swing)
@@ -52,11 +54,11 @@ function symbolShape(shape: Shape): string {
       const l = cx - t; // left edge at centerline crossings
       return (
         `M ${r} ${top} ` +
-        `C ${r - b} ${y1} ${r - b} ${y2} ${r} ${mid} ` +
-        `C ${r + b} ${y3} ${r + b} ${y4} ${r} ${bottom} ` +
+        `C ${r + b} ${y1} ${r + b} ${y2} ${r} ${mid} ` +
+        `C ${r - b} ${y3} ${r - b} ${y4} ${r} ${bottom} ` +
         `C ${r} ${bottom + cap} ${l} ${bottom + cap} ${l} ${bottom} ` +
-        `C ${l + b} ${y4} ${l + b} ${y3} ${l} ${mid} ` +
-        `C ${l - b} ${y2} ${l - b} ${y1} ${l} ${top} ` +
+        `C ${l - b} ${y4} ${l - b} ${y3} ${l} ${mid} ` +
+        `C ${l + b} ${y2} ${l + b} ${y1} ${l} ${top} ` +
         `C ${l} ${top - cap} ${r} ${top - cap} ${r} ${top} Z`
       );
     }
