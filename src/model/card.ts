@@ -19,6 +19,7 @@ const COUNTS: readonly Count[] = [1, 2, 3];
 const COLORS: readonly Color[] = ["red", "green", "purple"];
 const SHAPES: readonly Shape[] = ["diamond", "oval", "squiggle"];
 const FILLS: readonly Fill[] = ["solid", "striped", "open"];
+const COUNT_TOKENS = COUNTS.map(String);
 
 export function cardKey(card: Card): CardKey {
   const { count, color, shape, fill } = card;
@@ -31,6 +32,7 @@ export function cardFromKey(key: CardKey): Card {
   const [countRaw, color, shape, fill] = parts;
   const count = Number(countRaw) as Count;
   if (
+    !COUNT_TOKENS.includes(countRaw) ||
     !COUNTS.includes(count) ||
     !COLORS.includes(color as Color) ||
     !SHAPES.includes(shape as Shape) ||

@@ -8,6 +8,11 @@ export function cardId(n: number): CardId {
   return n as CardId;
 }
 
+// Per-attribute confidence, 0..1. Contract: approximates the
+// classifier's belief that the attribute is correct; 0 means "no
+// signal" (e.g. nothing segmented), never "definitely wrong".
+// Calibration against real-photo fixtures is ongoing; treat
+// cross-attribute comparisons as approximate.
 export interface AttributeConfidence {
   count: number; // 0..1, per-attribute calibrated
   color: number;

@@ -23,6 +23,13 @@ export interface SymbolRegion {
 
 // The task-level vision adapter. Implementations own ALL library
 // specifics (OpenCV et al.); plain data in and out.
+//
+// Cost note: implementations re-ingest the full frame per call (a
+// 3072px frame is ~28MB uploaded once for detectCards and once per
+// rectifyCard). Measured well within the 500ms budget for still
+// frames; if live mode changes that, the sanctioned evolution is a
+// frame-session/handle variant of this interface (see spec), not
+// caching inside implementations.
 export interface CardVision {
   // find card-shaped regions; quads in input-frame coordinates
   detectCards(frame: ImageData, options?: DetectOptions): Quad[];

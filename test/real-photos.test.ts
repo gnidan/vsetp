@@ -15,7 +15,7 @@ const ATTRIBUTES = ["count", "color", "shape", "fill"] as const;
 const MATCH_RADIUS = 250;
 
 for (const dir of ["tuning", "holdout"] as const) {
-  const fixtures = await loadFixtures(dir);
+  const fixtures = process.env.REAL_PHOTOS ? await loadFixtures(dir) : [];
   // TODO(tuning): remove this gate once the tuning task lands —
   // real photos currently reveal known misreads (see task-19 report),
   // and tuning constants against them is that task's job, not this

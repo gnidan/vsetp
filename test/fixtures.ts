@@ -20,17 +20,19 @@ export async function loadFixtures(
   } catch {
     return [];
   }
-  const names = entries
+  const images = entries
     .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
-    .map((f) => f.replace(/\.(jpe?g|png|webp)$/i, ""))
+    .map((file) => ({
+      file,
+      name: file.replace(/\.(jpe?g|png|webp)$/i, ""),
+    }))
     // bin/annotate.ts drops "<name>-annotated.png" dev-tool output
     // alongside the source photo (see .gitignore); skip any image
     // without a matching label sidecar rather than treat it as a
     // fixture.
-    .filter((name) => entries.includes(`${name}.json`));
+    .filter(({ name }) => entries.includes(`${name}.json`));
   const fixtures: Fixture[] = [];
-  for (const name of names) {
-    const file = entries.find((f) => f.startsWith(`${name}.`))!;
+  for (const { file, name } of images) {
     const { data, info } = await sharp(join(ROOT, dir, file))
       .rotate() // apply EXIF orientation: labels are display-oriented
       .ensureAlpha()

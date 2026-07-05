@@ -23,5 +23,7 @@ describe("cardKey", () => {
     expect(() => cardFromKey("nonsense" as never)).toThrow();
     expect(() => cardFromKey("2-red-oval-striped-extra" as never)).toThrow();
     expect(() => cardFromKey("2-red-oval" as never)).toThrow();
+    expect(() => cardFromKey("01-red-oval-solid" as never)).toThrow();
+    expect(() => cardFromKey("1e0-red-oval-solid" as never)).toThrow();
   });
 });

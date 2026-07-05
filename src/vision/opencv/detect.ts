@@ -174,6 +174,11 @@ export function detectCards(
       () => binaryFromEdges(cv, working),
     ];
 
+    // Arbitration is "most candidates wins" with an early break once
+    // the primary path reaches MIN_PLAUSIBLE_CARDS. Known limitation:
+    // for genuinely sparse frames (1-2 cards) the Canny fallback can
+    // outvote a correct primary result with junk quads. Revisit with
+    // real-photo data in the tuning pass (see progress ledger).
     let best: Candidate[] = [];
     for (const strategy of strategies) {
       const binary = strategy();
