@@ -19,6 +19,11 @@ const INK_GATES: { minSaturation: number; maxValue: number }[] = [
   { minSaturation: 40, maxValue: 140 },
   { minSaturation: 30, maxValue: 150 },
   { minSaturation: 25, maxValue: 160 },
+  // dim + blurred cards (pic1014255's vignetted right column) carry
+  // strokes at S 15-43; only cards whose faces are clean enough to
+  // find nothing at the rungs above ever descend here
+  { minSaturation: 20, maxValue: 170 },
+  { minSaturation: 15, maxValue: 175 },
 ];
 
 // seal breaks in pale/blurry outline strokes before contour
@@ -28,14 +33,20 @@ const INK_GATES: { minSaturation: number; maxValue: number }[] = [
 // inter-symbol spacing (~60px) at CARD_RASTER scale.
 const INK_CLOSE_KERNEL = 5;
 
-// ladder-advance criterion: a gate's result is only trusted (stopping
-// the descent to more permissive gates) if at least one region is
-// plausibly a WHOLE symbol. Measured whole symbols occupy 0.088-0.14
-// of the raster (diamonds smallest); broken-outline fragments that
-// barely clear MIN_SYMBOL_AREA_FRACTION measure ~0.011 (pic2934145
-// card 3). Fragment-only results are kept as a fallback if no gate
-// produces a whole symbol.
+// gate scoring: regions at least this large are plausibly WHOLE
+// symbols. Measured whole symbols occupy 0.088-0.14 of the raster
+// (diamonds smallest); broken-outline fragments that barely clear
+// MIN_SYMBOL_AREA_FRACTION measure ~0.011 (pic2934145 card 3).
+// Every gate runs and the best-scoring wins: whole symbols (capped at
+// a card's maximum of 3) score high, fragments penalize, and earlier
+// (stricter) gates win ties so clean cards never pick up a permissive
+// gate's noise. First-whole-wins stopped too early on pic1014255's
+// dim cards: one diamond closed three rungs before its two siblings.
 const MIN_WHOLE_SYMBOL_FRACTION = 0.04;
+
+function gateScore(whole: number, fragments: number): number {
+  return Math.min(whole, 3) * 10 - fragments;
+}
 
 // outer fraction of the raster blanked in the ink mask: it is the
 // white-reference border ring by construction (symbols never reach
@@ -55,7 +66,7 @@ function regionsFromInk(
   cv: Cv,
   ink: Cv,
   rasterArea: number,
-): { regions: SymbolRegion[]; wholeSymbol: boolean } {
+): { regions: SymbolRegion[]; whole: number } {
   let contours: Cv = null;
   let hierarchy: Cv = null;
   try {
@@ -71,7 +82,7 @@ function regionsFromInk(
       cv.CHAIN_APPROX_SIMPLE,
     );
     const regions: SymbolRegion[] = [];
-    let wholeSymbol = false;
+    let whole = 0;
     for (let i = 0; i < contours.size(); i++) {
       let contour: Cv = null;
       let hull: Cv = null;
@@ -83,7 +94,7 @@ function regionsFromInk(
           area <= rasterArea * MAX_SYMBOL_AREA_FRACTION
         ) {
           if (area >= rasterArea * MIN_WHOLE_SYMBOL_FRACTION) {
-            wholeSymbol = true;
+            whole++;
           }
           hull = new cv.Mat();
           cv.convexHull(contour, hull);
@@ -97,7 +108,7 @@ function regionsFromInk(
         contour?.delete();
       }
     }
-    return { regions, wholeSymbol };
+    return { regions, whole };
   } finally {
     hierarchy?.delete();
     contours?.delete();
@@ -134,9 +145,8 @@ export function segmentSymbols(cv: Cv, card: ImageData): SymbolRegion[] {
     const ringX = Math.max(2, Math.round(card.width * BORDER_RING));
     const ringY = Math.max(2, Math.round(card.height * BORDER_RING));
 
-    // fragment-only fallback from earlier gates (see
-    // MIN_WHOLE_SYMBOL_FRACTION)
-    let fallback: SymbolRegion[] = [];
+    let best: SymbolRegion[] = [];
+    let bestScore = -Infinity;
     for (const gate of INK_GATES) {
       let saturated: Cv = null;
       let dark: Cv = null;
@@ -173,15 +183,12 @@ export function segmentSymbols(cv: Cv, card: ImageData): SymbolRegion[] {
         cv.bitwise_and(ink, interior, ink);
         cv.morphologyEx(ink, ink, cv.MORPH_CLOSE, closeKernel);
 
-        const { regions, wholeSymbol } = regionsFromInk(cv, ink, rasterArea);
-        // left-to-right for deterministic downstream behavior
-        const sorted = regions.sort(
-          (a, b) =>
-            Math.min(...a.outline.map((p) => p.x)) -
-            Math.min(...b.outline.map((p) => p.x)),
-        );
-        if (wholeSymbol) return sorted;
-        if (fallback.length === 0) fallback = sorted;
+        const { regions, whole } = regionsFromInk(cv, ink, rasterArea);
+        const score = gateScore(whole, regions.length - whole);
+        if (regions.length > 0 && score > bestScore) {
+          bestScore = score;
+          best = regions;
+        }
       } finally {
         interior?.delete();
         ink?.delete();
@@ -189,7 +196,12 @@ export function segmentSymbols(cv: Cv, card: ImageData): SymbolRegion[] {
         saturated?.delete();
       }
     }
-    return fallback;
+    // left-to-right for deterministic downstream behavior
+    return best.sort(
+      (a, b) =>
+        Math.min(...a.outline.map((p) => p.x)) -
+        Math.min(...b.outline.map((p) => p.x)),
+    );
   } finally {
     closeKernel?.delete();
     valueChannel?.delete();

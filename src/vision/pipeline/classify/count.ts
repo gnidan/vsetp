@@ -3,8 +3,12 @@ import type { SymbolRegion } from "../../adapter";
 import { polygonArea } from "../regions";
 
 // symbols on one card are the same size; regions far from the median
-// area are debris (glare blobs, specks), not symbols
-const AREA_CONSISTENCY = { min: 0.55, max: 1.8 };
+// area are debris (glare blobs, specks), not symbols. Band floor
+// measured on the tuning fixtures: a dim symbol whose outline only
+// partially closes still reads 0.39 of the median area (pic1014255's
+// third purple squiggle) while true debris (broken-stroke fragments,
+// border bleed) measures 0.08-0.20.
+const AREA_CONSISTENCY = { min: 0.3, max: 1.8 };
 
 export function classifyCount(regions: SymbolRegion[]): {
   value: Count;
