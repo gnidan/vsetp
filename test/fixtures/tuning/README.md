@@ -11,16 +11,9 @@ EXIF-portrait shots.
 
 `test/real-photos.test.ts` runs every fixture in this directory (and
 in `../holdout/`) through the pipeline and prints a per-attribute
-confusion matrix for any frame with a misread. It is gated behind an
-env flag:
+confusion matrix for any frame with a misread. It runs unconditionally
+as part of `npm test`:
 
 ```bash
-REAL_PHOTOS=1 npx vitest run test/real-photos.test.ts
+npx vitest run test/real-photos.test.ts
 ```
-
-Without `REAL_PHOTOS=1` (e.g. plain `npm test`), the suite is skipped
-so CI and local runs stay green while pipeline constants have not yet
-been tuned against real photos.
-
-<!-- TODO(tuning): remove this gate once the tuning task lands and the
-     suite is expected to pass on tuning/ fixtures. -->

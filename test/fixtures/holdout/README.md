@@ -6,7 +6,6 @@ fix against that, and only then re-run holdout.
 
 ## Running the real-photo suite
 
-Same suite as tuning/ (`test/real-photos.test.ts`), same temporary
-`REAL_PHOTOS=1` gate — see `../tuning/README.md`. This directory is
-expected to stay empty until the tuning task lands; the suite skips
-cleanly while it is.
+Same suite as tuning/ (`test/real-photos.test.ts`), run unconditionally
+as part of `npm test` — see `../tuning/README.md`. If this directory is
+empty, the suite skips cleanly.
