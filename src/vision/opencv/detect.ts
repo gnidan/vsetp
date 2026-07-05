@@ -62,9 +62,7 @@ interface ExtractOptions {
 }
 
 type Evaluation =
-  | { kind: "card"; points: Point[] }
-  | { kind: "cluster" }
-  | { kind: "reject" };
+  { kind: "card"; points: Point[] } | { kind: "cluster" } | { kind: "reject" };
 
 function evaluateContour(
   cv: Cv,
@@ -254,7 +252,7 @@ function offsetConvex(points: Point[], by: number): Point[] {
       dy,
     };
   });
-  return points.map((p, i) => {
+  return points.map((_p, i) => {
     const e1 = edges[(i - 1 + n) % n];
     const e2 = edges[i];
     const det = e1.dx * e2.dy - e1.dy * e2.dx;

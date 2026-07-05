@@ -45,11 +45,7 @@ export function classifyShape(regions: SymbolRegion[]): {
   const bboxArea =
     (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
   const bboxFill = outlineArea / Math.max(bboxArea, 1);
-  if (
-    vertices === 4 &&
-    solidity > 0.9 &&
-    bboxFill <= DIAMOND_MAX_BBOX_FILL
-  ) {
+  if (vertices === 4 && solidity > 0.9 && bboxFill <= DIAMOND_MAX_BBOX_FILL) {
     // polygonal, convex-ish AND rhombus-like: diamond. Rounder
     // 4-vertex regions (stadium ovals, pinched squiggles) fall
     // through to the solidity/defect vote below.
