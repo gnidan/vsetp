@@ -114,57 +114,58 @@ export function App() {
                 : `${Math.round(engine.loaded / 1024 / 1024)}MB`}
             </p>
           )}
-          {screen.phase === "idle" && (
+          <div className="stage">
             <CaptureView
-              notice={screen.notice}
+              active={screen.phase === "idle"}
+              notice={screen.phase === "idle" ? screen.notice : null}
               onCapture={onCapture}
               onCaptureError={(message) =>
                 dispatch({ type: "capture-failed", message })
               }
             />
-          )}
-          {screen.phase === "analyzing" && (
-            <AnalysisView
-              capture={screen.capture}
-              analysis={null}
-              triples={[]}
-              selected={-1}
-              busyLabel={
-                engine.status === "ready" ? "Analyzing…" : "Warming up…"
-              }
-              onCancel={() => dispatch({ type: "cancel" })}
-            />
-          )}
-          {screen.phase === "results" && (
-            <>
+            {screen.phase === "analyzing" && (
               <AnalysisView
                 capture={screen.capture}
-                analysis={screen.analysis}
-                triples={screen.triples}
-                selected={screen.selected}
-                busyLabel={null}
+                analysis={null}
+                triples={[]}
+                selected={-1}
+                busyLabel={
+                  engine.status === "ready" ? "Analyzing…" : "Warming up…"
+                }
+                onCancel={() => dispatch({ type: "cancel" })}
               />
-              <Hud
-                analysis={screen.analysis}
-                triples={screen.triples}
-                selected={screen.selected}
-                onSelect={(index) => dispatch({ type: "select-set", index })}
-                onRetake={() => dispatch({ type: "retake" })}
-                onReanalyze={() => {
-                  const client = clientRef.current;
-                  if (!client) return;
-                  const capture = screen.capture;
-                  dispatch({ type: "reanalyze" });
-                  analyzeCapture(client, capture);
-                }}
-              />
-              <SrResults
-                analysis={screen.analysis}
-                triples={screen.triples}
-                selected={screen.selected}
-              />
-            </>
-          )}
+            )}
+            {screen.phase === "results" && (
+              <>
+                <AnalysisView
+                  capture={screen.capture}
+                  analysis={screen.analysis}
+                  triples={screen.triples}
+                  selected={screen.selected}
+                  busyLabel={null}
+                />
+                <Hud
+                  analysis={screen.analysis}
+                  triples={screen.triples}
+                  selected={screen.selected}
+                  onSelect={(index) => dispatch({ type: "select-set", index })}
+                  onRetake={() => dispatch({ type: "retake" })}
+                  onReanalyze={() => {
+                    const client = clientRef.current;
+                    if (!client) return;
+                    const capture = screen.capture;
+                    dispatch({ type: "reanalyze" });
+                    analyzeCapture(client, capture);
+                  }}
+                />
+                <SrResults
+                  analysis={screen.analysis}
+                  triples={screen.triples}
+                  selected={screen.selected}
+                />
+              </>
+            )}
+          </div>
         </>
       )}
     </main>

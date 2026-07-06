@@ -1,21 +1,29 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
 import { captureFromFile, captureFromVideo } from "../app/capture";
-
-type CameraState = "unprimed" | "starting" | "live" | "unavailable";
+import { cameraReduce } from "./camera-state";
 
 export function CaptureView({
+  active,
   notice,
   onCapture,
   onCaptureError,
 }: {
+  active: boolean;
   notice: string | null;
   onCapture(capture: Capture): void;
   onCaptureError(message: string): void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const [camera, setCamera] = useState<CameraState>("unprimed");
+  const [camera, send] = useReducer(cameraReduce, "unprimed");
+  const [dismissed, setDismissed] = useState(false);
+  const live = camera === "live";
+
+  // a fresh notice (new guidance text, or notice appearing after
+  // having been null) should reappear even if a prior one was
+  // dismissed
+  useEffect(() => setDismissed(false), [notice]);
 
   useEffect(
     () => () => streamRef.current?.getTracks().forEach((t) => t.stop()),
@@ -23,7 +31,7 @@ export function CaptureView({
   );
 
   async function enableCamera() {
-    setCamera("starting");
+    send("enable");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -37,9 +45,9 @@ export function CaptureView({
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      setCamera("live");
+      send("granted");
     } catch {
-      setCamera("unavailable");
+      send("denied");
     }
   }
 
@@ -63,7 +71,7 @@ export function CaptureView({
 
   return (
     <section className="capture">
-      {camera !== "live" && (
+      {active && !live && (
         <div className="capture-center">
           {notice && <p className="notice">{notice}</p>}
           {camera === "unprimed" && (
@@ -82,26 +90,41 @@ export function CaptureView({
           )}
         </div>
       )}
+      {active && live && notice && !dismissed && (
+        <p className="notice capture-notice">
+          {notice}
+          <button
+            type="button"
+            className="notice-dismiss"
+            onClick={() => setDismissed(true)}
+            aria-label="Dismiss notice"
+          >
+            ×
+          </button>
+        </p>
+      )}
       <video
         ref={videoRef}
         playsInline
         muted
-        hidden={camera !== "live"}
+        hidden={!active || !live}
         aria-label="Camera viewfinder"
       />
-      {camera === "live" && (
+      {active && live && (
         <button className="primary shutter" onClick={shoot}>
           Analyze table
         </button>
       )}
-      <label className="picker">
-        <span>Choose or take a photo</span>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => void pick(e.target.files?.[0] ?? null)}
-        />
-      </label>
+      {active && (
+        <label className="picker">
+          <span>Choose or take a photo</span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => void pick(e.target.files?.[0] ?? null)}
+          />
+        </label>
+      )}
     </section>
   );
 }
