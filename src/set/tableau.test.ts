@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import type { Card } from "../model";
-import { cardFromKey, cardId } from "../model";
+import type { Card, TrackId } from "../model";
+import { cardFromKey, cardId, trackId } from "../model";
 import type { CardKey } from "../model";
 import { findSets, hasSet, makeTableau } from "./tableau";
 
@@ -69,5 +69,21 @@ describe("findSets", () => {
     // three identical faces DO form a set (all-same on every
     // attribute) using three distinct detections
     expect(findSets(t)).toEqual([[cardId(0), cardId(1), cardId(2)]]);
+  });
+});
+
+describe("generic tableau", () => {
+  test("solves over TrackId entries", () => {
+    // any three cards differing in exactly one attribute form a set
+    const cards: Card[] = [
+      { count: 1, color: "red", shape: "oval", fill: "solid" },
+      { count: 2, color: "red", shape: "oval", fill: "solid" },
+      { count: 3, color: "red", shape: "oval", fill: "solid" },
+    ];
+    const t = makeTableau<TrackId>(
+      cards.map((card, i) => ({ id: trackId(i + 10), card })),
+    );
+    const sets = findSets(t);
+    expect(sets).toEqual([[trackId(10), trackId(11), trackId(12)]]);
   });
 });

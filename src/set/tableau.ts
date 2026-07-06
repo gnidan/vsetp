@@ -2,21 +2,23 @@ import type { Card, CardId, CardKey } from "../model";
 import { cardKey } from "../model";
 import { thirdCard } from "./third-card";
 
-export type SetTriple = [CardId, CardId, CardId];
+export type SetTriple<Id extends number = CardId> = [Id, Id, Id];
 
-export interface TableauEntry {
-  id: CardId;
+export interface TableauEntry<Id extends number = CardId> {
+  id: Id;
   card: Card;
 }
 
 // immutable snapshot of identified cards on the table
-export interface Tableau {
-  entries: TableauEntry[];
-  byKey: Map<CardKey, CardId[]>; // membership multimap
+export interface Tableau<Id extends number = CardId> {
+  entries: TableauEntry<Id>[];
+  byKey: Map<CardKey, Id[]>; // membership multimap
 }
 
-export function makeTableau(entries: TableauEntry[]): Tableau {
-  const byKey = new Map<CardKey, CardId[]>();
+export function makeTableau<Id extends number = CardId>(
+  entries: TableauEntry<Id>[],
+): Tableau<Id> {
+  const byKey = new Map<CardKey, Id[]>();
   for (const { id, card } of entries) {
     const key = cardKey(card);
     const ids = byKey.get(key);
@@ -26,7 +28,7 @@ export function makeTableau(entries: TableauEntry[]): Tableau {
   return { entries, byKey };
 }
 
-function* triples(t: Tableau): Generator<SetTriple> {
+function* triples<Id extends number>(t: Tableau<Id>): Generator<SetTriple<Id>> {
   const seen = new Set<string>();
   const { entries, byKey } = t;
   for (let i = 0; i < entries.length; i++) {
@@ -36,7 +38,7 @@ function* triples(t: Tableau): Generator<SetTriple> {
         if (id === entries[i].id || id === entries[j].id) continue;
         const triple = [entries[i].id, entries[j].id, id].sort(
           (a, b) => a - b,
-        ) as SetTriple;
+        ) as SetTriple<Id>;
         const dedup = triple.join(",");
         if (seen.has(dedup)) continue;
         seen.add(dedup);
@@ -46,11 +48,13 @@ function* triples(t: Tableau): Generator<SetTriple> {
   }
 }
 
-export function findSets(t: Tableau): SetTriple[] {
+export function findSets<Id extends number = CardId>(
+  t: Tableau<Id>,
+): SetTriple<Id>[] {
   return [...triples(t)];
 }
 
-export function hasSet(t: Tableau): boolean {
+export function hasSet<Id extends number = CardId>(t: Tableau<Id>): boolean {
   for (const _ of triples(t)) return true;
   return false;
 }
