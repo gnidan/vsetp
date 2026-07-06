@@ -63,13 +63,25 @@ export function CaptureView({
 
   return (
     <section className="capture">
-      {notice && <p className="notice">{notice}</p>}
-      {camera === "unprimed" && (
-        <button className="primary" onClick={enableCamera}>
-          Enable camera
-        </button>
+      {camera !== "live" && (
+        <div className="capture-center">
+          {notice && <p className="notice">{notice}</p>}
+          {camera === "unprimed" && (
+            <button className="primary" onClick={enableCamera}>
+              Enable camera
+            </button>
+          )}
+          {camera === "starting" && <p>Starting camera…</p>}
+          {camera === "unavailable" && (
+            <p className="notice">
+              Camera unavailable or blocked. You can still take photos with the
+              button below — it uses your system camera. To re-enable the live
+              viewfinder, allow camera access in your browser settings and
+              reload.
+            </p>
+          )}
+        </div>
       )}
-      {camera === "starting" && <p>Starting camera…</p>}
       <video
         ref={videoRef}
         playsInline
@@ -82,15 +94,8 @@ export function CaptureView({
           Analyze table
         </button>
       )}
-      {camera === "unavailable" && (
-        <p className="notice">
-          Camera unavailable or blocked. You can still take photos with the
-          button below — it uses your system camera. To re-enable the live
-          viewfinder, allow camera access in your browser settings and reload.
-        </p>
-      )}
       <label className="picker">
-        Choose or take a photo
+        <span>Choose or take a photo</span>
         <input
           type="file"
           accept="image/*"

@@ -1,30 +1,57 @@
-.app {
-  max-width: 64rem;
-  margin: 0 auto;
-  padding: 1rem;
+:root {
+  color-scheme: dark;
 }
-.notice {
-  background: #fff6d6;
-  padding: 0.5rem 0.75rem;
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: #12233a;
+  color: #f2f5f9;
+  font:
+    16px/1.4 system-ui,
+    sans-serif;
+}
+.app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.engine-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 3;
+  margin: 0;
+}
+.capture,
+.analysis-view {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
 }
 .capture video {
   width: 100%;
-  max-height: 60vh;
-  background: #000;
-}
-.primary {
-  font-size: 1.25rem;
-  padding: 0.75rem 1.5rem;
-}
-.picker input {
-  display: block;
-}
-.analysis-view {
-  position: relative;
-  width: 100%;
-  height: 70vh;
-  overflow: hidden;
-  background: #111;
+  height: 100%;
+  object-fit: cover;
 }
 .frame-space {
   position: absolute;
@@ -70,12 +97,87 @@
   inset: 0;
   display: grid;
   place-content: center;
+  gap: 1rem;
   background: rgba(0, 0, 0, 0.45);
-  color: #fff;
+  z-index: 2;
 }
-.set-chips button[aria-pressed="true"] {
-  outline: 3px solid #00e5ff;
+.primary {
+  font-size: 1.25rem;
+  padding: 0.9rem 1.6rem;
+  border-radius: 999px;
+  border: none;
+  background: #00e5ff;
+  color: #06121f;
 }
-.card-list li {
-  padding: 0.15rem 0;
+.shutter {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+}
+.capture-center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 1rem;
+  text-align: center;
+  padding: 1rem;
+  z-index: 1;
+}
+.picker {
+  position: absolute;
+  bottom: 1.5rem;
+  right: 1rem;
+  z-index: 2;
+  font-size: 0.9rem;
+}
+.picker input {
+  display: none;
+}
+.picker span {
+  text-decoration: underline;
+  cursor: pointer;
+}
+.notice {
+  background: rgba(255, 246, 214, 0.92);
+  color: #33290a;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+}
+.hud {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem calc(env(safe-area-inset-right) + 1rem)
+    calc(env(safe-area-inset-bottom) + 0.75rem)
+    calc(env(safe-area-inset-left) + 1rem);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+  z-index: 2;
+}
+.hud-summary {
+  flex: 1;
+  margin: 0;
+  font-weight: 600;
+}
+.hud-chips {
+  display: flex;
+  gap: 0.4rem;
+}
+.hud-chips button,
+.hud-actions button {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.4);
+  color: #f2f5f9;
+  padding: 0.45rem 0.9rem;
+}
+.hud-chips button[aria-pressed="true"] {
+  border-color: #00e5ff;
+  color: #00e5ff;
 }

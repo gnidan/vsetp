@@ -7,9 +7,11 @@ import {
   DisposedError,
   createWorkerClient,
 } from "../app/worker-client";
+import { announcementFor } from "./announce";
 import { AnalysisView } from "./AnalysisView";
 import { CaptureView } from "./CaptureView";
-import { ResultsPanel } from "./ResultsPanel";
+import { Hud } from "./Hud";
+import { SrResults } from "./SrResults";
 
 export function App() {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
@@ -92,71 +94,77 @@ export function App() {
 
   const { engine, screen } = state;
 
-  if (engine.status === "failed") {
-    return (
-      <main className="app">
-        <h1>vsetp</h1>
+  return (
+    <main className="app">
+      <div aria-live="polite" role="status" className="sr-only">
+        {announcementFor(state)}
+      </div>
+      {engine.status === "failed" ? (
         <p className="notice">
           The card reader couldn't start: {engine.message}. Check your
           connection and reload to retry.
         </p>
-      </main>
-    );
-  }
-
-  return (
-    <main className="app">
-      <h1>vsetp</h1>
-      {engine.status === "loading" && (
-        <p role="status" className="engine-progress">
-          Loading card reader…{" "}
-          {engine.total
-            ? `${Math.round((engine.loaded / engine.total) * 100)}%`
-            : `${Math.round(engine.loaded / 1024 / 1024)}MB`}
-        </p>
-      )}
-      {screen.phase === "idle" && (
-        <CaptureView
-          notice={screen.notice}
-          onCapture={onCapture}
-          onCaptureError={(message) =>
-            dispatch({ type: "capture-failed", message })
-          }
-        />
-      )}
-      {screen.phase === "analyzing" && (
-        <AnalysisView
-          capture={screen.capture}
-          analysis={null}
-          triples={[]}
-          selected={-1}
-          busyLabel={engine.status === "ready" ? "Analyzing…" : "Warming up…"}
-          onCancel={() => dispatch({ type: "cancel" })}
-        />
-      )}
-      {screen.phase === "results" && (
+      ) : (
         <>
-          <AnalysisView
-            capture={screen.capture}
-            analysis={screen.analysis}
-            triples={screen.triples}
-            selected={screen.selected}
-            busyLabel={null}
-          />
-          <ResultsPanel
-            analysis={screen.analysis}
-            triples={screen.triples}
-            selected={screen.selected}
-            onSelect={(index) => dispatch({ type: "select-set", index })}
-            onRetake={() => dispatch({ type: "retake" })}
-            onReanalyze={() => {
-              const client = clientRef.current;
-              if (!client) return;
-              const capture = screen.capture;
-              dispatch({ type: "reanalyze" });
-              analyzeCapture(client, capture);
-            }}
-          />
+          {engine.status === "loading" && (
+            <p className="engine-progress">
+              Loading card reader…{" "}
+              {engine.total
+                ? `${Math.round((engine.loaded / engine.total) * 100)}%`
+                : `${Math.round(engine.loaded / 1024 / 1024)}MB`}
+            </p>
+          )}
+          {screen.phase === "idle" && (
+            <CaptureView
+              notice={screen.notice}
+              onCapture={onCapture}
+              onCaptureError={(message) =>
+                dispatch({ type: "capture-failed", message })
+              }
+            />
+          )}
+          {screen.phase === "analyzing" && (
+            <AnalysisView
+              capture={screen.capture}
+              analysis={null}
+              triples={[]}
+              selected={-1}
+              busyLabel={
+                engine.status === "ready" ? "Analyzing…" : "Warming up…"
+              }
+              onCancel={() => dispatch({ type: "cancel" })}
+            />
+          )}
+          {screen.phase === "results" && (
+            <>
+              <AnalysisView
+                capture={screen.capture}
+                analysis={screen.analysis}
+                triples={screen.triples}
+                selected={screen.selected}
+                busyLabel={null}
+              />
+              <Hud
+                analysis={screen.analysis}
+                triples={screen.triples}
+                selected={screen.selected}
+                onSelect={(index) => dispatch({ type: "select-set", index })}
+                onRetake={() => dispatch({ type: "retake" })}
+                onReanalyze={() => {
+                  const client = clientRef.current;
+                  if (!client) return;
+                  const capture = screen.capture;
+                  dispatch({ type: "reanalyze" });
+                  analyzeCapture(client, capture);
+                }}
+              />
+              <SrResults
+                analysis={screen.analysis}
+                triples={screen.triples}
+                selected={screen.selected}
+              />
+            </>
+          )}
         </>
       )}
     </main>

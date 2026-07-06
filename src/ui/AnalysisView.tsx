@@ -58,7 +58,9 @@ export function AnalysisView({
           <Overlay analysis={analysis} triples={triples} selected={selected} />
         )}
         {busyLabel && (
-          <div className="busy" role="status">
+          // no role="status" here: the persistent live region in App
+          // owns announcements, and a second one would double-speak
+          <div className="busy">
             <p>{busyLabel}</p>
             {onCancel && <button onClick={onCancel}>Cancel</button>}
           </div>
