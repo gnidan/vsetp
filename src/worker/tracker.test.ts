@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { allCards, cardFromKey, cardKey } from "../model";
 import type { CardKey, Mark, Quad } from "../model";
 import {
+  adoptRoiDetection,
   advanceTracks,
   applyClassifications,
   CONSENSUS_TO_LOCK,
@@ -388,5 +389,32 @@ describe("time-to-all-locked bound", () => {
       frames++;
     }
     expect(frames).toBeLessThan(60); // 6s @ 10fps (spec p50 bound)
+  });
+});
+
+describe("adoptRoiDetection", () => {
+  it("adopts a quad as a tentative roi-assist track", () => {
+    const table = createTrackTable();
+    adoptRoiDetection(table, rect(100, 100));
+    expect(table.tracks).toHaveLength(1);
+    expect(table.tracks[0].state).toBe("tentative");
+    expect(table.tracks[0].provenance).toBe("roi-assist");
+  });
+
+  it("skips a quad whose centroid lies inside an existing track", () => {
+    const table = createTrackTable();
+    step(table, [rect(100, 100)]);
+    adoptRoiDetection(table, rect(110, 105)); // centroid inside AABB
+    expect(table.tracks).toHaveLength(1);
+    expect(table.tracks[0].provenance).toBeUndefined();
+  });
+
+  it("skips a quad whose centroid lies inside a suppression", () => {
+    const table = createTrackTable();
+    step(table, [rect(100, 100)]);
+    // not-a-card removes the track and leaves a suppression circle
+    step(table, [], [{ type: "not-a-card", at: { x: 145, y: 129 } }]);
+    adoptRoiDetection(table, rect(100, 100));
+    expect(table.tracks).toHaveLength(0);
   });
 });

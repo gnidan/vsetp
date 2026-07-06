@@ -423,6 +423,43 @@ export function advanceTracks(
   return { toClassify, roiRequests };
 }
 
+// ROI-assist adoption (Task 8): the user pointed at a missed card
+// and the relaxed ROI detector found a quad there. Spawn a tentative
+// track for it unless its centroid already lies inside an existing
+// track's AABB (duplicate) or inside a suppression circle (the user
+// previously said not-a-card here).
+export function adoptRoiDetection(table: TrackTable, quad: Quad): void {
+  const c = centroid(quad);
+  const duplicate = table.tracks.some((t) => {
+    const xs = t.quad.map((p) => p.x);
+    const ys = t.quad.map((p) => p.y);
+    return (
+      c.x >= Math.min(...xs) &&
+      c.x <= Math.max(...xs) &&
+      c.y >= Math.min(...ys) &&
+      c.y <= Math.max(...ys)
+    );
+  });
+  if (duplicate) return;
+  if (table.suppressions.some((s) => distance(c, s.at) <= s.radius)) {
+    return;
+  }
+  table.tracks.push({
+    id: trackId(table.nextId++),
+    quad,
+    state: "tentative",
+    reading: null,
+    confidence: null,
+    provenance: "roi-assist",
+    missing: 0,
+    consensus: freshConsensus(),
+    lastClassified: -Infinity,
+    lastVerified: -Infinity,
+    lockedArea: null,
+    bigFrames: 0,
+  });
+}
+
 export interface ClassificationResult {
   id: TrackId;
   outcome: { card: Card; confidence: AttributeConfidence } | null;
