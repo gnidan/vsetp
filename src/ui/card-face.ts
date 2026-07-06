@@ -131,15 +131,36 @@ export function cardFaceDataUrl(card: Card): string {
 export const GHOST_SYMBOL_SCALE = 0.8;
 export const GHOST_SYMBOL_OUTLINE = "#00e5ff";
 
+// Both the halo and ink strokes below center on the same path, so each
+// only shows the *other* half of its width past the path edge. Halo
+// widened 14 -> 18 and ink widened 6 -> 12 (user report: on open
+// symbols the halo's inner half bled across the thin ink outline,
+// sandwiching it into an "interior border" that read as cyan, not ink
+// color). At ink 12 / halo 18, the ink's outer 6px covers the halo's
+// inner 9px plus change, so the halo shows only as a ~9px outer rim
+// and the ink owns the full symbol edge. Solid/striped ink widened to
+// the same 12 for a consistent look across fills (checked by eye on
+// rendered fixtures below).
+export const GHOST_HALO_WIDTH = 18;
+export const GHOST_INK_WIDTH = 12;
+
 // Ghost open fill is fully transparent (the real card shows through
 // the symbol interior); the shared fillAttrs' opaque white doesn't
-// apply here. Solid/striped ink rendering is unchanged.
+// apply here. All three fills use GHOST_INK_WIDTH (see comment above)
+// instead of the real face's thinner strokes.
 function ghostFillAttrs(fill: Fill, color: Color, patternId: string): string {
-  if (fill === "open") {
-    const ink = INK[color];
-    return `fill="none" stroke="${ink}" stroke-width="6"`;
+  const ink = INK[color];
+  switch (fill) {
+    case "solid":
+      return `fill="${ink}" stroke="${ink}" stroke-width="${GHOST_INK_WIDTH}"`;
+    case "open":
+      return `fill="none" stroke="${ink}" stroke-width="${GHOST_INK_WIDTH}"`;
+    case "striped":
+      return (
+        `fill="url(#${patternId})" stroke="${ink}" ` +
+        `stroke-width="${GHOST_INK_WIDTH}"`
+      );
   }
-  return fillAttrs(fill, color, patternId);
 }
 
 // Ghost stripe pattern: same spacing/stroke as the real face's, but
@@ -173,8 +194,8 @@ export function ghostFaceSvg(card: Card): string {
     const d = symbolShape(card.shape);
     symbols.push(
       `<path transform="${transform}" d="${d}" fill="none" ` +
-        `stroke="${GHOST_SYMBOL_OUTLINE}" stroke-width="14" ` +
-        `stroke-linejoin="round"/>`,
+        `stroke="${GHOST_SYMBOL_OUTLINE}" ` +
+        `stroke-width="${GHOST_HALO_WIDTH}" stroke-linejoin="round"/>`,
       `<path transform="${transform}" d="${d}" ` +
         `${ghostFillAttrs(card.fill, card.color, patternId)}/>`,
     );
