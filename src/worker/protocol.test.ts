@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { isWorkerRequest, isWorkerResponse } from "./protocol";
 
 describe("boundary guards", () => {
@@ -46,5 +46,16 @@ describe("boundary guards", () => {
     expect(isWorkerRequest({ type: "result" })).toBe(false);
     expect(isWorkerResponse({ type: "analyze" })).toBe(false);
     expect(isWorkerResponse("ready")).toBe(false);
+  });
+
+  it("accepts live request and response tags", () => {
+    expect(isWorkerRequest({ type: "live-start" })).toBe(true);
+    expect(isWorkerRequest({ type: "live-frame" })).toBe(true);
+    expect(isWorkerRequest({ type: "live-feedback" })).toBe(true);
+    expect(isWorkerRequest({ type: "live-stop" })).toBe(true);
+    expect(isWorkerResponse({ type: "live-ready" })).toBe(true);
+    expect(isWorkerResponse({ type: "live-update" })).toBe(true);
+    expect(isWorkerResponse({ type: "mark-ack" })).toBe(true);
+    expect(isWorkerResponse({ type: "live-stopped" })).toBe(true);
   });
 });

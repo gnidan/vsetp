@@ -1,4 +1,11 @@
-import type { Frame, FrameAnalysis, FrameId } from "../model";
+import type {
+  Frame,
+  FrameAnalysis,
+  FrameId,
+  Mark,
+  MarkId,
+  Track,
+} from "../model";
 import type { DetectOptions } from "../vision/adapter";
 
 export type PipelineStage = "detect" | "rectify" | "segment" | "classify";
@@ -26,6 +33,34 @@ export interface WorkerProtocol {
           message: string;
         };
   };
+  "live-start": {
+    request: { type: "live-start" };
+    response: { type: "live-ready" };
+  };
+  "live-frame": {
+    request: {
+      type: "live-frame";
+      frame: Frame;
+      captureMs: number;
+      options?: DetectOptions;
+    };
+    response:
+      | {
+          type: "live-update";
+          frameId: FrameId;
+          tracks: Track[];
+          timings: Record<string, number>;
+        }
+      | { type: "dropped"; frameId: FrameId };
+  };
+  "live-feedback": {
+    request: { type: "live-feedback"; markId: MarkId; mark: Mark };
+    response: { type: "mark-ack"; markId: MarkId };
+  };
+  "live-stop": {
+    request: { type: "live-stop" };
+    response: { type: "live-stopped" };
+  };
 }
 
 export type RequestKind = keyof WorkerProtocol;
@@ -35,7 +70,14 @@ export type ResponseOf<K extends RequestKind> = WorkerProtocol[K]["response"];
 export type WorkerRequest = RequestOf<RequestKind>;
 export type WorkerResponse = ResponseOf<RequestKind>;
 
-const REQUEST_TYPES = new Set<WorkerRequest["type"]>(["init", "analyze"]);
+const REQUEST_TYPES = new Set<WorkerRequest["type"]>([
+  "init",
+  "analyze",
+  "live-start",
+  "live-frame",
+  "live-feedback",
+  "live-stop",
+]);
 const RESPONSE_TYPES = new Set<WorkerResponse["type"]>([
   "init-progress",
   "ready",
@@ -43,6 +85,10 @@ const RESPONSE_TYPES = new Set<WorkerResponse["type"]>([
   "result",
   "dropped",
   "analyze-error",
+  "live-ready",
+  "live-update",
+  "mark-ack",
+  "live-stopped",
 ]);
 
 function discriminantOf(data: unknown): string | null {
