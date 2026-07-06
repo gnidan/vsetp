@@ -125,11 +125,35 @@ export function cardFaceDataUrl(card: Card): string {
 
 // Ghost variant: no white face rect (the real card shows through), the
 // symbols nested inside the real ink by shrinking about their own
-// centers, plus a dotted amber border that stands in for the "this is
-// a ghost" cue the removed white wash used to carry.
+// centers, plus a cyan halo ring around each symbol (matching the
+// detection outline color) that stands in for the "this is a ghost"
+// cue the removed white wash used to carry.
 export const GHOST_SYMBOL_SCALE = 0.8;
-export const GHOST_BORDER = "#ffb300";
-const GHOST_BORDER_INSET = 6;
+export const GHOST_SYMBOL_OUTLINE = "#00e5ff";
+
+// Ghost open fill is fully transparent (the real card shows through
+// the symbol interior); the shared fillAttrs' opaque white doesn't
+// apply here. Solid/striped ink rendering is unchanged.
+function ghostFillAttrs(fill: Fill, color: Color, patternId: string): string {
+  if (fill === "open") {
+    const ink = INK[color];
+    return `fill="none" stroke="${ink}" stroke-width="6"`;
+  }
+  return fillAttrs(fill, color, patternId);
+}
+
+// Ghost stripe pattern: same spacing/stroke as the real face's, but
+// rotated 90 degrees (the ghost's stripes otherwise ran perpendicular
+// to the real printed ones) and with no white background rect, so the
+// gaps between stripes stay transparent like the rest of the ghost.
+function ghostStripePattern(patternId: string, color: Color): string {
+  return (
+    `<pattern id="${patternId}" width="14" height="14" ` +
+    `patternUnits="userSpaceOnUse" patternTransform="rotate(90)">` +
+    `<line x1="4" y1="0" x2="4" y2="14" stroke="${INK[color]}" ` +
+    `stroke-width="5"/></pattern>`
+  );
+}
 
 // SVG for one ghost card face at CARD_RASTER size, origin at (0, 0),
 // no background rect (fully transparent). Reuses cardFaceSvg's row
@@ -146,21 +170,18 @@ export function ghostFaceSvg(card: Card): string {
     const transform =
       `translate(${x} ${y}) translate(${w / 2} ${h / 2}) ` +
       `scale(${GHOST_SYMBOL_SCALE}) translate(${-w / 2} ${-h / 2})`;
+    const d = symbolShape(card.shape);
     symbols.push(
-      `<path transform="${transform}" ` +
-        `d="${symbolShape(card.shape)}" ` +
-        `${fillAttrs(card.fill, card.color, patternId)}/>`,
+      `<path transform="${transform}" d="${d}" fill="none" ` +
+        `stroke="${GHOST_SYMBOL_OUTLINE}" stroke-width="14" ` +
+        `stroke-linejoin="round"/>`,
+      `<path transform="${transform}" d="${d}" ` +
+        `${ghostFillAttrs(card.fill, card.color, patternId)}/>`,
     );
   }
-  const bx = GHOST_BORDER_INSET;
-  const bw = CARD_RASTER.width - 2 * GHOST_BORDER_INSET;
-  const bh = CARD_RASTER.height - 2 * GHOST_BORDER_INSET;
   return (
-    `<defs>${stripePattern(patternId, card.color)}</defs>` +
-    symbols.join("") +
-    `<rect x="${bx}" y="${bx}" width="${bw}" height="${bh}" rx="18" ` +
-    `fill="none" stroke="${GHOST_BORDER}" stroke-width="10" ` +
-    `stroke-dasharray="2 14" stroke-linecap="round"/>`
+    `<defs>${ghostStripePattern(patternId, card.color)}</defs>` +
+    symbols.join("")
   );
 }
 

@@ -76,7 +76,7 @@ function applyGhostAlpha(raster: ImageData): void {
 }
 
 // Rasterizes the ghost SVG variant (transparent background, nested
-// scaled-down symbols, dotted amber border) at CARD_RASTER size.
+// scaled-down symbols each ringed in cyan) at CARD_RASTER size.
 async function rasterizeGhost(card: Card): Promise<ImageData> {
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" ` +

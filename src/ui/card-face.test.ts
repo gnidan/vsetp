@@ -29,7 +29,7 @@ describe("cardFaceDataUrl", () => {
 });
 
 describe("ghostFaceDataUrl", () => {
-  test("has no card face fill, has the ghost border, and count paths", () => {
+  test("has no card face fill, has cyan symbol borders, and 2x paths", () => {
     const url = ghostFaceDataUrl({
       count: 2,
       color: "green",
@@ -38,7 +38,33 @@ describe("ghostFaceDataUrl", () => {
     });
     const svg = decodeURIComponent(url.slice("data:image/svg+xml,".length));
     expect(svg).not.toContain("#fdfdf8");
-    expect(svg).toContain("#ffb300");
-    expect(svg.match(/<path/g)).toHaveLength(2);
+    expect(svg).not.toContain("#ffb300");
+    expect(svg).toContain("#00e5ff");
+    expect(svg.match(/<path/g)).toHaveLength(4);
+  });
+
+  test("open ghost fill is transparent, not opaque white", () => {
+    const url = ghostFaceDataUrl({
+      count: 1,
+      color: "purple",
+      shape: "diamond",
+      fill: "open",
+    });
+    const svg = decodeURIComponent(url.slice("data:image/svg+xml,".length));
+    expect(svg).toContain('fill="none"');
+    expect(svg).not.toContain("#fdfdf8");
+    expect(svg).not.toContain('fill="#ffffff"');
+  });
+
+  test("striped ghost pattern is rotated with no white background", () => {
+    const url = ghostFaceDataUrl({
+      count: 1,
+      color: "red",
+      shape: "squiggle",
+      fill: "striped",
+    });
+    const svg = decodeURIComponent(url.slice("data:image/svg+xml,".length));
+    expect(svg).toContain('patternTransform="rotate(90)"');
+    expect(svg).not.toMatch(/<rect[^>]*fill="#ffffff"/);
   });
 });
