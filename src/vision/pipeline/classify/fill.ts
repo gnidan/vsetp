@@ -50,6 +50,20 @@ const MIN_LUMA_SAMPLE_FRACTION = 0.01;
 // frame-edge card measured 1.25), so row alternation there is shadow
 // noise. Real striped interiors measure 0.86-0.94 of border white.
 const STRIPED_MAX_LUMA_RATIO = 1.05;
+// A RESOLVED-striped verdict (fraction + alternation) additionally
+// requires the interior's MEAN luma to be depressed by the stripe
+// ink. Alternation alone can be a dim card's saturation noise
+// flickering across the ink gate: pic421151's corner
+// 2-purple-oval-open measured fraction 0.175 and transitions 2.25 —
+// but its interior is as bright as the border. The MEDIAN cannot
+// carry this check: crisp-striped interiors (stripes under 50%
+// coverage, synthetic renderer) have a WHITE median (measured 1.015)
+// — only the mean sees their ink. Measured mean-luma ratios: striped
+// 0.794-0.804 (synthetic crisp) and 0.844-0.956 (all 16 real striped
+// cards, every blur regime); the dim-noise open that reaches this
+// branch 1.013. 0.98 splits them. (Chroma-halo opens measure means
+// down to 0.922 but transitions <= 1.9 — they never get here.)
+const STRIPED_MAX_MEAN_LUMA_RATIO = 0.98;
 // fraction of the raster edge treated as known-white card border
 // (mirrors whiteBalance's reference ring)
 const BORDER_RING = 0.05;
@@ -132,9 +146,11 @@ export function classifyFill(
   const median = saturations.sort((a, b) => a - b)[
     Math.floor(saturations.length / 2)
   ];
+  const meanLuma = lumas.reduce((s, l) => s + l, 0) / lumas.length;
   const medianLuma = lumas.sort((a, b) => a - b)[Math.floor(lumas.length / 2)];
   const white = borderLuma(raster, gains);
   const lumaRatio = white > 0 ? medianLuma / white : 1;
+  const meanLumaRatio = white > 0 ? meanLuma / white : 1;
   // an "open" verdict is only trusted if the interior is as bright as
   // the card border; darker means desaturated stripes (see
   // OPEN_MIN_LUMA_RATIO)
@@ -170,9 +186,13 @@ export function classifyFill(
   if (
     inkFraction >= STRIPED_MIN_FRACTION &&
     meanTransitions >= STRIPED_MIN_TRANSITIONS &&
-    lumaRatio <= STRIPED_MAX_LUMA_RATIO
+    meanLumaRatio <= STRIPED_MAX_MEAN_LUMA_RATIO
   ) {
-    // resolved stripes: the interior actually alternates
+    // resolved stripes: the interior actually alternates AND its
+    // mean is darkened by stripe ink (see
+    // STRIPED_MAX_MEAN_LUMA_RATIO — this bound also subsumes the
+    // border-trust guard for this branch: an overshot quad's
+    // interior means 1.137 against its polluted ring)
     return {
       value: "striped",
       confidence: Math.min(1, meanTransitions / 8 + 0.3),
