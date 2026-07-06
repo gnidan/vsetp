@@ -266,32 +266,81 @@ function offsetConvex(points: Point[], by: number): Point[] {
   });
 }
 
-// Edge-based fallback for white-cards-on-light-tables: card borders
-// survive as gradients even when no threshold separates the regions.
-function binaryFromEdges(cv: Cv, gray: Cv): Cv {
+// Edge-interiors fallback for white-cards-on-light-tables: card
+// borders survive as Canny gradients even when no global threshold
+// separates card from table (pic421151 measured: cream cards on tan
+// under an illumination gradient — even a second-pass Otsu on the
+// light half of the histogram splits the frame by brightness side,
+// not card-vs-table). The dilated edge lattice encloses each card's
+// interior; those enclosed smooth regions ARE the card candidates.
+//
+// Canny band: at the prior 40/120 the dim-corner card borders of
+// pic421151 have gaps, and 16 of 20 interiors leak into the table
+// component (which exceeds MAX_CARD_AREA_FRACTION and is dropped);
+// measured accepted interiors by (low/high, dilate diameter):
+// 40/120: 4-5; 30/90: 13; 20/60: 14-15; 15/45+7px: 20/20 with zero
+// junk quads; 10/30 over-merges back down to 18. Extra edges from
+// the low band are harmless here — they only subdivide the table
+// into slivers the aspect/vertex gates already reject.
+const EDGE_LATTICE_CANNY = { low: 15, high: 45 };
+// dilation RADIUS sealing residual border gaps; radius 2 still leaks
+// one card on pic421151 (19/20), radius 3 seals all 20
+const EDGE_LATTICE_SEAL = 3;
+// the Canny line itself sits ON the card border; the interior is
+// inset by the seal radius plus roughly half that line's width
+// (calibration below against synthetic truth quads)
+const EDGE_INTERIOR_LINE_HALF_WIDTH = 1;
+
+function binaryFromEdgeInteriors(cv: Cv, gray: Cv): Cv {
   let edges: Cv = null;
   let kernel: Cv = null;
-  let filled: Cv = null;
+  let contours: Cv = null;
+  let hierarchy: Cv = null;
+  let rebuilt: Cv = null;
   try {
     edges = new cv.Mat();
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
-    cv.Canny(gray, edges, 40, 120);
-    cv.dilate(edges, edges, kernel); // seal soft/broken card borders
-    // cards become rings; fill them so external contours are card blobs
-    filled = new cv.Mat();
-    cv.morphologyEx(
-      edges,
-      filled,
-      cv.MORPH_CLOSE,
-      kernel,
-      new cv.Point(-1, -1),
-      2,
+    kernel = cv.getStructuringElement(
+      cv.MORPH_ELLIPSE,
+      new cv.Size(2 * EDGE_LATTICE_SEAL + 1, 2 * EDGE_LATTICE_SEAL + 1),
     );
-    const result = filled;
-    filled = null;
+    cv.Canny(gray, edges, EDGE_LATTICE_CANNY.low, EDGE_LATTICE_CANNY.high);
+    cv.dilate(edges, edges, kernel); // seal soft/broken card borders
+    cv.bitwise_not(edges, edges); // white = smooth enclosed regions
+    // Card interiors can be nested arbitrarily deep (inside the hole
+    // of a table region, itself inside a black photo-frame border), so
+    // RETR_EXTERNAL would never see them. RETR_CCOMP puts the outer
+    // boundary of EVERY white component at the top level regardless of
+    // nesting; redraw the card-area-plausible ones filled. The area
+    // ceiling is load-bearing twice over: a filled redraw of a huge
+    // component (table lattice, photo margin) would also paint over
+    // the card interiors nested in its holes.
+    contours = new cv.MatVector();
+    hierarchy = new cv.Mat();
+    cv.findContours(
+      edges,
+      contours,
+      hierarchy,
+      cv.RETR_CCOMP,
+      cv.CHAIN_APPROX_SIMPLE,
+    );
+    rebuilt = cv.Mat.zeros(edges.rows, edges.cols, cv.CV_8UC1);
+    const imageArea = edges.rows * edges.cols;
+    for (let i = 0; i < contours.size(); i++) {
+      if (hierarchy.data32S[i * 4 + 3] !== -1) continue; // hole: skip
+      const contour = contours.get(i);
+      const area = cv.contourArea(contour);
+      contour.delete();
+      if (area < imageArea * MIN_CARD_AREA_FRACTION) continue;
+      if (area > imageArea * MAX_CARD_AREA_FRACTION) continue;
+      cv.drawContours(rebuilt, contours, i, new cv.Scalar(255), -1);
+    }
+    const result = rebuilt;
+    rebuilt = null;
     return result;
   } finally {
-    filled?.delete();
+    rebuilt?.delete();
+    hierarchy?.delete();
+    contours?.delete();
     kernel?.delete();
     edges?.delete();
   }
@@ -379,10 +428,11 @@ export function detectCards(
     };
 
     const fromBinary =
-      (make: () => Cv, extract: ExtractOptions) => (): Candidate[] => {
+      (make: () => Cv, erosion: number, extract: ExtractOptions) =>
+      (): Candidate[] => {
         const binary = make();
         try {
-          return candidatesFromBinary(cv, binary, SPLIT_EROSION, extract);
+          return candidatesFromBinary(cv, binary, erosion, extract);
         } finally {
           binary.delete();
         }
@@ -390,21 +440,28 @@ export function detectCards(
 
     const strategies: Array<() => Candidate[]> = [
       // primary: global Otsu separates white cards from the table
-      fromBinary(otsuBinary, {
+      fromBinary(otsuBinary, SPLIT_EROSION, {
         aspectMax: CARD_ASPECT_RANGE.max,
         splitBudget: 0,
       }),
       // steep-overlap rescue; wider aspect ceiling because glancing
       // angles compress cards past the ordinary band (see constant)
-      fromBinary(edgeCutBinary, {
+      fromBinary(edgeCutBinary, SPLIT_EROSION, {
         aspectMax: STEEP_ASPECT_MAX,
         splitBudget: MAX_SPLIT_EROSION,
       }),
-      // light-background fallback (see binaryFromEdges)
-      fromBinary(() => binaryFromEdges(cv, working), {
-        aspectMax: CARD_ASPECT_RANGE.max,
-        splitBudget: 0,
-      }),
+      // light-background fallback (see binaryFromEdgeInteriors); the
+      // interior quads sit inside the card border by the lattice seal
+      // radius plus the Canny line's half-width, compensated like an
+      // erosion
+      fromBinary(
+        () => binaryFromEdgeInteriors(cv, working),
+        EDGE_LATTICE_SEAL + EDGE_INTERIOR_LINE_HALF_WIDTH,
+        {
+          aspectMax: CARD_ASPECT_RANGE.max,
+          splitBudget: 0,
+        },
+      ),
     ];
 
     // Arbitration is "most candidates wins" with an early break once
