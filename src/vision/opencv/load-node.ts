@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Cv } from "./cv";
 import { OPENCV_VENDOR_FILE } from "./cv";
+import { settleOpenCv } from "./runtime";
 
 let cached: Promise<Cv> | undefined;
 
@@ -32,25 +33,7 @@ function evaluateArtifact(): Cv {
 }
 
 async function initialize(): Promise<Cv> {
-  const cv = evaluateArtifact();
-  // The module is an Emscripten thenable that resolves with itself;
-  // promise adoption then re-chains it forever, starving the event
-  // loop (vitest spins at 100% CPU). Remove `then` before this module
-  // ever becomes a promise's resolution value, and wait for
-  // onRuntimeInitialized instead — chaining the artifact's own handler
-  // (it installs Mat.prototype.clone).
-  if (cv.Mat) {
-    delete cv.then;
-    return cv; // already initialized
-  }
-  return new Promise<Cv>((res) => {
-    const previous = cv.onRuntimeInitialized;
-    cv.onRuntimeInitialized = () => {
-      if (previous) previous();
-      delete cv.then;
-      res(cv);
-    };
-  });
+  return settleOpenCv(evaluateArtifact());
 }
 
 // Node-side loader for tests/tools. The browser/worker loader (streamed
