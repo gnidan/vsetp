@@ -77,27 +77,32 @@ source.** **FAIL.** Evidence:
   separate commit** ("Apply UMD compatibility patches to 5.x
   opencv.js") that hand-patches the already-built output: `this` ->
   `globalThis` in the UMD wrapper, and `Module = {}` -> `var Module =
-  {}` for strict-mode/Webpack compatibility. This patch was authored
-  and verified (38/38 Jest + compat tests) by an AI coding agent
-  credited as co-author, reviewed only by the single maintainer.
-- Net effect: the shipped artifact is a third-party rebuild with a
-  publicly-inspectable but **not cryptographically verifiable**
-  chain from `opencv/opencv` source to the file we'd vendor, plus a
-  hand-applied post-build patch outside that build process entirely.
-  This is exactly the "third-party rebuild without verifiable
-  provenance" case the brief calls a FAIL, even though it is by a
-  wide margin the most transparent third-party option available.
+  {}` for strict-mode/Webpack compatibility. To the project's credit,
+  this is **not** a silent recommit: the patch ships as a reviewable,
+  versioned `dist/opencv.js.patch` (a 22-line `git diff`), with a
+  documented create/apply procedure in `dist/README.md`
+  (`git diff > dist/opencv.js.patch` / `git apply dist/opencv.js.patch`).
+  It was authored and verified (38/38 Jest + compat tests) by an AI
+  coding agent credited as co-author, reviewed only by the single
+  maintainer — but it is transparent about what it changes and why.
+- The actual disqualifier is narrower and procedural, not a hidden
+  patch: the npm-publish workflow's own build job is commented out,
+  so `npm publish --provenance` runs directly against whatever is
+  checked into git, with **no verifiable link** back to the
+  build-opencv-js workflow's output. npm's SLSA attestation proves
+  "this tarball == this git commit, published by this GitHub Actions
+  run" — it says nothing about whether that commit's `dist/opencv.js`
+  traces to an actual `opencv/opencv` build. That gap — a disconnected
+  publish pipeline, not the patch itself — is what fails "verifiably
+  built-from-official-source" here.
 - Maintenance is real but thin: single npm maintainer, 748 GitHub
   stars, version cadence tracks upstream OpenCV releases with a
   several-month lag (4.11 Jun 2025, 4.12 Nov 2025, 5.0.0 Jun 2026).
 
 **3. Single-threaded build available (GitHub Pages: no
 COOP/COEP).** PASS. Confirmed by inspecting the actual published
-artifact: `SharedArrayBuffer` does not appear in the file; the only
-`pthread` occurrences are OpenCV's own TLS-abstraction error strings
-compiled into every build (threaded or not), not evidence of a
-`USE_PTHREADS` build. The build workflow's `threads` input also
-defaults to `false`.
+artifact: `SharedArrayBuffer` does not appear in the file, and the
+build workflow's `threads` input defaults to `false`.
 
 **4. Node-compatible for the ring-2 test loader.** Conditional
 PASS-via-criterion-1 in principle (the vendored copy is what
@@ -121,27 +126,41 @@ Calling the factory returns a **genuine native `Promise`**, not
 Emscripten's classic self-resolving-thenable `Module` object that
 `settleOpenCv` was written to defuse. `settleOpenCv`'s `delete
 candidate.then` is a no-op on a native Promise (`then` lives on
-`Promise.prototype`, not as an own property), so today's code would:
-set a dead `onRuntimeInitialized` callback on the *Promise object*
-(never invoked — the real Emscripten `Module` local is a different
-object than the returned Promise), then `resolve(candidate)` a
-native Promise from inside another Promise's executor, which adopts
-the inner promise's eventual settlement. In practice this likely
-*happens* to resolve correctly once wasm finishes loading (native
-promise adoption, not the classic infinite-microtask hang the
-existing comment warns about) — but that is an unverified, untested
-code path standing on an accident of promise-adoption semantics, not
-a design. Landing a native-thenable-safe branch in `settleOpenCv`
-with unit tests, as the brief requires, is real, uncosted work — not
-a rubber stamp.
+`Promise.prototype`, not as an own property), so `candidate` stays a
+real Promise with `candidate.Mat === undefined`. Execution falls
+through to the `onRuntimeInitialized`-callback branch, which sets
+that callback as a property *on the Promise object itself* — but
+nothing ever reads or invokes `promise.onRuntimeInitialized`; the
+real Emscripten `Module` local that would call it lives inside the
+factory's closure, inaccessible from the returned Promise. The
+`resolve` that would settle `settleOpenCv`'s own outer Promise lives
+*only* inside that dead callback, so it never fires either.
+
+This was not left as a theoretical read of the code: **empirically
+confirmed** by evaluating the actual `@techstark/opencv-js@5.0.0-release.1`
+`dist/opencv.js` in Node exactly as `load-node.ts` does (CommonJS
+`new Function` eval), then calling `settleOpenCv`'s exact logic
+against it and waiting. Result: `settleOpenCv` **never resolves —
+guaranteed silent hang**, not a resolve-by-accident. The promise
+returned by the factory is real and would itself settle once the
+wasm runtime finishes initializing, but `settleOpenCv` never adopts
+or awaits that inner promise anywhere in its current logic, so that
+settlement is invisible to it. Any future GO on an npm artifact
+shaped like this requires a native-`Promise`-aware branch in
+`settleOpenCv` (e.g. detect `candidate instanceof Promise` and await
+it directly instead of routing through `onRuntimeInitialized`), landed
+with unit tests *before* the swap — this is real, uncosted
+engineering work, not a rubber stamp.
 
 ## Decision
 
 **NO-GO.** Criterion 2 fails outright, which alone is disqualifying
-since all five criteria are binding. Criterion 5's cost (a real
-`settleOpenCv` code path + tests, currently only exercised by
-accident) compounds it. Keep `bin/fetch-opencv.sh` vendoring the
-official docs.opencv.org artifact: it has unambiguous, single-source
+since all five criteria are binding. Criterion 5 independently
+confirms real, uncosted work would be required even setting
+provenance aside — `settleOpenCv` guaranteed-hangs against the
+actual artifact today, empirically verified, not a theoretical risk.
+Keep `bin/fetch-opencv.sh` vendoring the official docs.opencv.org
+artifact: it has unambiguous, single-source
 provenance (OpenCV.org's own build, at a URL versioned by OpenCV
 itself), and the runtime shape the user wants (separate,
 stably-named, precache-able, streamed-with-progress vendored file) is
@@ -151,13 +170,14 @@ already exactly what we have.
 
 - OpenCV.org begins publishing an official OpenCV.js build to npm
   under its own account/org.
-- `@techstark/opencv-js` (or an equivalent) publishes build
-  provenance that cryptographically ties the shipped `dist/opencv.js`
-  bytes to an unmodified `opencv/opencv` build — e.g. SLSA
-  provenance/attestation on the *build-opencv-js* workflow itself
-  (not just the npm-publish step), with any compatibility patches
-  applied as reviewed, versioned patch files rather than
-  silently-recommitted output.
+- `@techstark/opencv-js` (or an equivalent) closes the gap between its
+  two workflows — either the npm-publish workflow actually builds
+  from `opencv/opencv` source in CI (wiring up the currently-unused
+  build job) rather than publishing pre-existing git contents, or the
+  npm provenance attestation itself is extended to cover and link to
+  the build-opencv-js workflow's run, so the published artifact's
+  SLSA statement traces to an official-source build rather than only
+  to "this git commit was published by this workflow."
 - The team decides the provenance risk is acceptable to take on
   explicitly (a product/security call, not an engineering default) —
   in which case criterion 5's `settleOpenCv` native-thenable fix must
