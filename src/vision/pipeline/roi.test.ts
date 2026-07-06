@@ -37,6 +37,38 @@ describe("cropAround", () => {
   it("exports the spec span factor", () => {
     expect(ROI_SPAN_FACTOR).toBe(0.35);
   });
+
+  // detectCardsInRoi passes span = 0.35 * longEdge, which is
+  // fractional for most frame sizes; cropAround must floor to
+  // integer pixel dimensions or the row-copy offsets accumulate
+  // truncation error into a RangeError.
+  it("handles a fractional span (live 768x576 frame)", () => {
+    const frame = checkerFrame(768, 576);
+    const span = ROI_SPAN_FACTOR * 768; // 268.8
+    const { image, offset } = cropAround(frame, { x: 384, y: 288 }, span);
+    expect(image.width).toBe(268);
+    expect(image.height).toBe(268);
+    expect(Number.isInteger(offset.x)).toBe(true);
+    expect(Number.isInteger(offset.y)).toBe(true);
+    expect(offset.x).toBeGreaterThanOrEqual(0);
+    expect(offset.y).toBeGreaterThanOrEqual(0);
+    expect(offset.x + image.width).toBeLessThanOrEqual(768);
+    expect(offset.y + image.height).toBeLessThanOrEqual(576);
+  });
+
+  it("handles a fractional span (3072x2304 normalized still)", () => {
+    const frame = checkerFrame(3072, 2304);
+    const span = ROI_SPAN_FACTOR * 3072; // 1075.2
+    const { image, offset } = cropAround(
+      frame,
+      { x: 3000, y: 2200 }, // near the corner: clamp path too
+      span,
+    );
+    expect(image.width).toBe(1075);
+    expect(image.height).toBe(1075);
+    expect(offset.x + image.width).toBeLessThanOrEqual(3072);
+    expect(offset.y + image.height).toBeLessThanOrEqual(2304);
+  });
 });
 
 // max label-to-detection distance as a fraction of the image diagonal;

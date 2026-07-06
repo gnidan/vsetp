@@ -9,7 +9,10 @@ export function cropAround(
   at: Point,
   span: number,
 ): { image: ImageData; offset: Point } {
-  const side = Math.min(span, frame.width, frame.height);
+  // floor to integer pixels: callers pass fractional spans (e.g.
+  // ROI_SPAN_FACTOR * longEdge = 268.8 on a 768px live frame), and a
+  // fractional side corrupts every buffer offset derived from it
+  const side = Math.floor(Math.min(span, frame.width, frame.height));
   const x0 = Math.round(
     Math.min(Math.max(at.x - side / 2, 0), frame.width - side),
   );
