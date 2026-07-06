@@ -35,8 +35,8 @@ export type ResponseOf<K extends RequestKind> = WorkerProtocol[K]["response"];
 export type WorkerRequest = RequestOf<RequestKind>;
 export type WorkerResponse = ResponseOf<RequestKind>;
 
-const REQUEST_TYPES = new Set(["init", "analyze"]);
-const RESPONSE_TYPES = new Set([
+const REQUEST_TYPES = new Set<WorkerRequest["type"]>(["init", "analyze"]);
+const RESPONSE_TYPES = new Set<WorkerResponse["type"]>([
   "init-progress",
   "ready",
   "init-error",
@@ -55,10 +55,10 @@ function discriminantOf(data: unknown): string | null {
 // build, so shape validation beyond the tag is dead weight (spec).
 export function isWorkerRequest(data: unknown): data is WorkerRequest {
   const type = discriminantOf(data);
-  return type !== null && REQUEST_TYPES.has(type);
+  return type !== null && REQUEST_TYPES.has(type as WorkerRequest["type"]);
 }
 
 export function isWorkerResponse(data: unknown): data is WorkerResponse {
   const type = discriminantOf(data);
-  return type !== null && RESPONSE_TYPES.has(type);
+  return type !== null && RESPONSE_TYPES.has(type as WorkerResponse["type"]);
 }

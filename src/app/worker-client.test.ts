@@ -61,6 +61,12 @@ beforeEach(() => {
   worker = new FakeWorker();
 });
 
+describe("error classes", () => {
+  test("DisposedError has correct name property", () => {
+    expect(new DisposedError("test").name).toBe("DisposedError");
+  });
+});
+
 describe("init", () => {
   test("posts init once, resolves on ready, reports progress", async () => {
     const c = client();

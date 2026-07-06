@@ -36,6 +36,17 @@ describe("readWithProgress", () => {
     expect(events).toEqual([[2, null]]);
   });
 
+  test("reports null total for non-numeric Content-Length", async () => {
+    const response = new Response(streamOf(["ab"]), {
+      headers: { "Content-Length": "banana" },
+    });
+    const events: [number, number | null][] = [];
+    await readWithProgress(response, (loaded, total) =>
+      events.push([loaded, total]),
+    );
+    expect(events[0][1]).toBe(null);
+  });
+
   test("throws on non-OK responses", async () => {
     const response = new Response("nope", { status: 404 });
     await expect(readWithProgress(response)).rejects.toThrow(/404/);

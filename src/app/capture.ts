@@ -2,7 +2,9 @@ import type { Frame, FrameId } from "../model";
 import { frameId } from "../model";
 import { NORMALIZED_MAX_DIMENSION } from "../vision/adapter";
 
-export class CaptureDecodeError extends Error {}
+export class CaptureDecodeError extends Error {
+  override name = "CaptureDecodeError";
+}
 
 export interface Capture {
   frame: Frame;

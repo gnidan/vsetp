@@ -11,11 +11,21 @@ export type AnalyzeResult =
 
 export type InitProgress = (loaded: number, total: number | null) => void;
 
-export class EngineInitError extends Error {}
-export class WorkerDiedError extends Error {}
-export class DisposedError extends Error {}
-export class AnalyzeTimeoutError extends Error {}
+export class EngineInitError extends Error {
+  override name = "EngineInitError";
+}
+export class WorkerDiedError extends Error {
+  override name = "WorkerDiedError";
+}
+export class DisposedError extends Error {
+  override name = "DisposedError";
+}
+export class AnalyzeTimeoutError extends Error {
+  override name = "AnalyzeTimeoutError";
+}
 export class AnalyzeError extends Error {
+  override name = "AnalyzeError";
+
   constructor(
     message: string,
     public readonly stage: PipelineStage,

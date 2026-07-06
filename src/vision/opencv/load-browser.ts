@@ -19,7 +19,8 @@ export async function readWithProgress(
     throw new Error(`opencv fetch failed: HTTP ${response.status}`);
   }
   const header = response.headers.get("Content-Length");
-  const total = header ? Number(header) : null;
+  const parsed = header ? Number(header) : NaN;
+  const total = Number.isFinite(parsed) ? parsed : null;
   if (!response.body) {
     // environments without body streams: no incremental progress
     const text = await (response.text?.() ?? Promise.resolve(""));
