@@ -1,7 +1,7 @@
 import type { AppState } from "../app/state";
 import { edgeNotice } from "../app/guidance";
 
-function plural(count: number, word: string): string {
+export function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 

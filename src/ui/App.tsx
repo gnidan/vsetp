@@ -49,12 +49,33 @@ function engineFailureMessage(error: Error): string {
 
 export function App() {
   const [generation, setGeneration] = useState(0);
+  const [announcement, setAnnouncement] = useState("");
+  // a11y invariant: this aria-live region mounts exactly once and
+  // NEVER remounts — including across Retry, which remounts Session
+  // via key. Screen readers only track regions that persist; only
+  // the TEXT may change. On retry the failure text stays until the
+  // new Session's first announce effect lands.
   return (
-    <Session key={generation} onRetry={() => setGeneration((n) => n + 1)} />
+    <>
+      <div aria-live="polite" role="status" className="sr-only">
+        {announcement}
+      </div>
+      <Session
+        key={generation}
+        announce={setAnnouncement}
+        onRetry={() => setGeneration((n) => n + 1)}
+      />
+    </>
   );
 }
 
-function Session({ onRetry }: { onRetry(): void }) {
+function Session({
+  announce,
+  onRetry,
+}: {
+  announce(text: string): void;
+  onRetry(): void;
+}) {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
   const clientRef = useRef<WorkerClient | null>(null);
   const lastCapture = useRef<Capture | null>(null);
@@ -99,6 +120,12 @@ function Session({ onRetry }: { onRetry(): void }) {
       if (clientRef.current === client) clientRef.current = null;
     };
   }, []);
+
+  // push this session's announcement text up into App's persistent
+  // live region (the region itself must never remount; see App)
+  useEffect(() => {
+    announce(announcementFor(state));
+  }, [announce, state]);
 
   // revoke the previous capture's display URL once replaced
   useEffect(() => {
@@ -213,9 +240,6 @@ function Session({ onRetry }: { onRetry(): void }) {
 
   return (
     <main className="app">
-      <div aria-live="polite" role="status" className="sr-only">
-        {announcementFor(state)}
-      </div>
       {engine.status === "failed" ? (
         <div className="capture-center">
           <p className="notice">{engine.message}</p>

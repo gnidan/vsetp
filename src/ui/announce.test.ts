@@ -98,11 +98,13 @@ describe("announcementFor", () => {
     expect(announcementFor(state)).toBe("Analyzing…");
   });
 
-  // Precedence contract: onCapture dispatches "captured" before it
-  // calls startEngine/analyze, so an "engine-ready" dispatch's
-  // promise always attaches before "analysis-ok"'s — engine state
-  // can never regress to loading once a results screen exists.
-  // These two tests pin the contract from both directions.
+  // Precedence contract of announcementFor itself: engine text wins
+  // over screen text. These two tests pin that from both directions
+  // (a ready engine defers to the results text; a loading engine
+  // overrides the analyzing text). The dispatch-ordering invariant
+  // that keeps app state consistent with this precedence lives in
+  // App's onCapture (see the comment there) and is not exercised
+  // here — these tests only cover the pure announcement function.
   test("precedence: a ready engine's results screen wins", () => {
     const keys = Array.from({ length: 3 }, () => "1-red-oval-solid");
     const state: AppState = {

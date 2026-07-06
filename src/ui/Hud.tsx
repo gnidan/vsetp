@@ -1,6 +1,7 @@
 import type { RevealMode } from "../app/state";
 import type { FrameAnalysis } from "../model";
 import type { SetTriple } from "../set";
+import { plural } from "./announce";
 
 // Ladder order — the segmented control renders these left to right.
 const REVEAL_STEPS: { mode: RevealMode; label: string }[] = [
@@ -13,13 +14,11 @@ function summaryFor(reveal: RevealMode, cards: number, sets: number): string {
   if (cards === 0) return "No cards found";
   switch (reveal) {
     case "cards":
-      return `${cards} card${cards === 1 ? "" : "s"} read`;
+      return `${plural(cards, "card")} read`;
     case "presence":
       return sets > 0 ? "A set is present" : "No set here";
     case "sets":
-      return sets === 0
-        ? "No set here"
-        : `${sets} set${sets > 1 ? "s" : ""} found`;
+      return sets === 0 ? "No set here" : `${plural(sets, "set")} found`;
   }
 }
 
