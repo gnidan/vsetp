@@ -4,6 +4,7 @@ import type { Frame } from "../model";
 import {
   acceptFrame,
   acceptMark,
+  clearLiveMailbox,
   createLiveMailbox,
   drainMarks,
   nextFrame,
@@ -39,5 +40,17 @@ describe("live mailbox", () => {
     expect(marks).toHaveLength(1);
     expect(marks[0].markId).toBe(markId(1));
     expect(drainMarks(box)).toHaveLength(0); // drained
+  });
+
+  it("clearLiveMailbox drops the waiting frame and queued marks", () => {
+    const box = createLiveMailbox();
+    acceptFrame(box, { frame: frame(1), captureMs: 1 });
+    acceptMark(box, {
+      markId: markId(1),
+      mark: { type: "missed-card", at: { x: 1, y: 1 } },
+    });
+    clearLiveMailbox(box);
+    expect(nextFrame(box)).toBe(null);
+    expect(drainMarks(box)).toHaveLength(0);
   });
 });

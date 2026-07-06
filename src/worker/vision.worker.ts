@@ -7,6 +7,7 @@ import { analyze } from "../vision/pipeline/analyze";
 import {
   acceptFrame,
   acceptMark,
+  clearLiveMailbox,
   createLiveMailbox,
   drainMarks,
   nextFrame,
@@ -96,6 +97,11 @@ function livePump(): void {
       timings,
     });
   } catch (error) {
+    // Live pipeline errors surface as analyze-error, same as the
+    // analyze path, but no one is listening for it live: the client
+    // only routes live-update/live-ready/live-stopped/mark-ack, so
+    // this is client-invisible by design. The UI stall check in
+    // Plan D2 is the user-facing signal for a wedged live session.
     post({
       type: "analyze-error",
       frameId: pending.frame.id,
@@ -162,7 +168,7 @@ scope.onmessage = (event: MessageEvent) => {
   }
   if (data.type === "live-stop") {
     live = null;
-    liveBox.waitingFrame = null;
+    clearLiveMailbox(liveBox);
     post({ type: "live-stopped" });
     return;
   }

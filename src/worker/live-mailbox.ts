@@ -48,3 +48,12 @@ export function nextFrame(box: LiveMailbox): LivePending | null {
 export function drainMarks(box: LiveMailbox): MarkEntry[] {
   return box.marks.splice(0);
 }
+
+// Drops the waiting frame AND any queued marks. Used on live-stop:
+// leaving a mark queued across sessions would drain it into the
+// next session's first frame (phantom suppression / bogus ROI in a
+// fresh table).
+export function clearLiveMailbox(box: LiveMailbox): void {
+  box.waitingFrame = null;
+  box.marks.length = 0;
+}

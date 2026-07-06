@@ -65,6 +65,9 @@ export interface WorkerClient {
   init(onProgress?: InitProgress): Promise<void>;
   analyze(frame: Frame, options?: DetectOptions): Promise<AnalyzeResult>;
   startLive(onUpdate: (update: LiveUpdate) => void): Promise<void>;
+  // The caller's frame.pixels buffer is transferred (not copied) to
+  // the worker: it is detached/neutered on return and must not be
+  // read or reused afterward.
   sendLiveFrame(frame: Frame, captureMs: number, options?: DetectOptions): void;
   sendMark(mark: Mark): Promise<void>;
   stopLive(): Promise<void>;
@@ -115,7 +118,9 @@ export function createWorkerClient(
   let liveActive = false;
   let onLiveUpdate: ((update: LiveUpdate) => void) | null = null;
   let liveStartPending: PendingVoid | null = null;
+  let liveStartPromise: Promise<void> | null = null;
   let liveStopPending: PendingVoid | null = null;
+  let liveStopPromise: Promise<void> | null = null;
   const markPending = new Map<MarkId, PendingVoid>();
   let markCounter = 0;
 
@@ -130,8 +135,10 @@ export function createWorkerClient(
     pending.clear();
     liveStartPending?.reject(error);
     liveStartPending = null;
+    liveStartPromise = null;
     liveStopPending?.reject(error);
     liveStopPending = null;
+    liveStopPromise = null;
     for (const [, entry] of markPending) entry.reject(error);
     markPending.clear();
     liveActive = false;
@@ -268,31 +275,42 @@ export function createWorkerClient(
         new LiveSessionError("analyze pending; wait before going live"),
       );
     }
-    if (liveActive || liveStartPending) {
+    if (liveActive) {
       return Promise.reject(new LiveSessionError("live already active"));
     }
-    return new Promise<void>((resolve, reject) => {
+    // Registered synchronously (before any await on init()), so a
+    // second concurrent pre-ready call sees it and shares this same
+    // promise instead of overwriting liveStartPending and orphaning
+    // the first caller.
+    if (liveStartPromise) return liveStartPromise;
+    liveStartPromise = new Promise<void>((resolve, reject) => {
+      const settle = {
+        resolve: () => {
+          liveActive = true;
+          onLiveUpdate = onUpdate;
+          liveStartPromise = null;
+          resolve();
+        },
+        reject: (error: Error) => {
+          liveStartPromise = null;
+          reject(error);
+        },
+      };
       const send = () => {
         if (fatal) {
-          reject(fatal);
+          settle.reject(fatal);
           return;
         }
-        liveStartPending = {
-          resolve: () => {
-            liveActive = true;
-            onLiveUpdate = onUpdate;
-            resolve();
-          },
-          reject,
-        };
+        liveStartPending = settle;
         post<"live-start">({ type: "live-start" });
       };
       if (ready) {
         send();
       } else {
-        init().then(send, reject);
+        init().then(send, settle.reject);
       }
     });
+    return liveStartPromise;
   }
 
   function sendLiveFrame(
@@ -326,17 +344,27 @@ export function createWorkerClient(
   function stopLive(): Promise<void> {
     if (!liveActive) return Promise.resolve();
     if (fatal) return Promise.reject(fatal);
-    return new Promise<void>((resolve, reject) => {
+    // liveActive stays true until live-stopped arrives, so a second
+    // concurrent call lands here too; share the in-flight promise
+    // instead of overwriting liveStopPending and orphaning the first
+    // caller (and posting live-stop twice).
+    if (liveStopPromise) return liveStopPromise;
+    liveStopPromise = new Promise<void>((resolve, reject) => {
       liveStopPending = {
         resolve: () => {
           liveActive = false;
           onLiveUpdate = null;
+          liveStopPromise = null;
           resolve();
         },
-        reject,
+        reject: (error: Error) => {
+          liveStopPromise = null;
+          reject(error);
+        },
       };
       post<"live-stop">({ type: "live-stop" });
     });
+    return liveStopPromise;
   }
 
   function dispose(): void {

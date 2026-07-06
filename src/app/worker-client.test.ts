@@ -291,4 +291,33 @@ describe("live", () => {
     await expect(acked).rejects.toBeInstanceOf(WorkerDiedError);
     await expect(stopped).rejects.toBeInstanceOf(WorkerDiedError);
   });
+
+  test("concurrent stopLive calls share a promise, post once", async () => {
+    const c = await liveClient();
+    const first = c.stopLive();
+    const second = c.stopLive();
+    const stopMessages = worker.sent.filter(
+      (s) => s.message.type === "live-stop",
+    );
+    expect(stopMessages).toHaveLength(1);
+    worker.emit({ type: "live-stopped" });
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+  });
+
+  test("pre-ready startLive calls share a promise, post once", async () => {
+    const c = client();
+    const first = c.startLive(() => {});
+    const second = c.startLive(() => {});
+    worker.emit({ type: "ready" });
+    await Promise.resolve(); // flush init().then(send)
+    await Promise.resolve();
+    const startMessages = worker.sent.filter(
+      (s) => s.message.type === "live-start",
+    );
+    expect(startMessages).toHaveLength(1);
+    worker.emit({ type: "live-ready" });
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+  });
 });
