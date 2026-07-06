@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
 import { captureFromFile, captureFromVideo } from "../app/capture";
+import { createCameraLifecycle } from "./camera-lifecycle";
 import { cameraReduce } from "./camera-state";
 
 export function CaptureView({
@@ -16,8 +17,7 @@ export function CaptureView({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const mountedRef = useRef(true);
-  const enableGenRef = useRef(0);
+  const lifecycleRef = useRef(createCameraLifecycle());
   const [camera, send] = useReducer(cameraReduce, "unprimed");
   const [dismissed, setDismissed] = useState(false);
   const live = camera === "live";
@@ -27,17 +27,20 @@ export function CaptureView({
   // dismissed
   useEffect(() => setDismissed(false), [notice]);
 
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
+  useEffect(() => {
+    // setup() MUST re-mark mounted-ness: StrictMode replays this
+    // effect (setup, cleanup, setup) on the same instance, and a
+    // cleanup-only flag would poison every later getUserMedia grant
+    lifecycleRef.current.setup();
+    return () => {
+      lifecycleRef.current.teardown();
       streamRef.current?.getTracks().forEach((t) => t.stop());
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function enableCamera() {
     send("enable");
-    const generation = ++enableGenRef.current;
+    const token = lifecycleRef.current.beginEnable();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -49,7 +52,7 @@ export function CaptureView({
       // getUserMedia was pending across an unmount or a newer
       // enableCamera call: this grant is stale, so release it
       // immediately rather than adopting it into the ref.
-      if (!mountedRef.current || generation !== enableGenRef.current) {
+      if (lifecycleRef.current.isStale(token)) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
