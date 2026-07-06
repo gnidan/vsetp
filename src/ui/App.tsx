@@ -1,39 +1,51 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import type { Capture } from "../app/capture";
 import { initialState, reduce } from "../app/state";
-import { AnalyzeError, createWorkerClient } from "../app/worker-client";
+import type { WorkerClient } from "../app/worker-client";
+import {
+  AnalyzeError,
+  DisposedError,
+  createWorkerClient,
+} from "../app/worker-client";
 import { AnalysisView } from "./AnalysisView";
 import { CaptureView } from "./CaptureView";
 import { ResultsPanel } from "./ResultsPanel";
 
 export function App() {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
-  const client = useMemo(() => createWorkerClient(), []);
+  const clientRef = useRef<WorkerClient | null>(null);
   const lastCapture = useRef<Capture | null>(null);
 
-  const startEngine = useMemo(
-    () => () =>
-      client
-        .init((loaded, total) =>
-          dispatch({ type: "engine-progress", loaded, total }),
-        )
-        .then(() => dispatch({ type: "engine-ready" }))
-        .catch((error: Error) =>
-          dispatch({ type: "engine-failed", message: error.message }),
-        ),
-    [client],
-  );
+  const startEngine = (client: WorkerClient) =>
+    client
+      .init((loaded, total) =>
+        dispatch({ type: "engine-progress", loaded, total }),
+      )
+      .then(() => dispatch({ type: "engine-ready" }))
+      .catch((error: Error) => {
+        // a disposed client's rejection is mount lifecycle
+        // (StrictMode replay), not an engine failure
+        if (error instanceof DisposedError) return;
+        dispatch({ type: "engine-failed", message: error.message });
+      });
 
   useEffect(() => {
-    // spec: eager init overlaps the download with framing — EXCEPT on
-    // a metered connection (saveData), where the ~10MB fetch waits
-    // for capture intent (startEngine is idempotent; onCapture calls
-    // it again).
+    // client-per-mount: dispose() poisons a client permanently
+    // (sticky fatal), so StrictMode's mount-cleanup-remount must get
+    // a fresh client each time. spec: eager init overlaps the
+    // download with framing — EXCEPT on a metered connection
+    // (saveData), where the ~10MB fetch waits for capture intent
+    // (startEngine is idempotent; onCapture calls it again).
+    const client = createWorkerClient();
+    clientRef.current = client;
     const connection = (navigator as { connection?: { saveData?: boolean } })
       .connection;
-    if (!connection?.saveData) void startEngine();
-    return () => client.dispose();
-  }, [client, startEngine]);
+    if (!connection?.saveData) void startEngine(client);
+    return () => {
+      client.dispose();
+      if (clientRef.current === client) clientRef.current = null;
+    };
+  }, []);
 
   // revoke the previous capture's display URL once replaced
   useEffect(() => {
@@ -44,7 +56,7 @@ export function App() {
     lastCapture.current = current;
   }, [state.screen]);
 
-  function analyzeCapture(capture: Capture) {
+  function analyzeCapture(client: WorkerClient, capture: Capture) {
     client
       .analyze(capture.frame)
       .then((result) =>
@@ -71,9 +83,11 @@ export function App() {
   }
 
   function onCapture(capture: Capture) {
+    const client = clientRef.current;
+    if (!client) return;
     dispatch({ type: "captured", capture });
-    void startEngine(); // no-op unless init was saveData-deferred
-    analyzeCapture(capture);
+    void startEngine(client); // no-op unless init was saveData-deferred
+    analyzeCapture(client, capture);
   }
 
   const { engine, screen } = state;
@@ -136,9 +150,11 @@ export function App() {
             onSelect={(index) => dispatch({ type: "select-set", index })}
             onRetake={() => dispatch({ type: "retake" })}
             onReanalyze={() => {
+              const client = clientRef.current;
+              if (!client) return;
               const capture = screen.capture;
               dispatch({ type: "reanalyze" });
-              analyzeCapture(capture);
+              analyzeCapture(client, capture);
             }}
           />
         </>
