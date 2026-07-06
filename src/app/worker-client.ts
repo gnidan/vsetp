@@ -1,7 +1,15 @@
-import type { Frame, FrameAnalysis, FrameId } from "../model";
+import type {
+  Frame,
+  FrameAnalysis,
+  FrameId,
+  Mark,
+  MarkId,
+  Track,
+} from "../model";
+import { markId } from "../model";
 import type { DetectOptions } from "../vision/adapter";
 import { OPENCV_VENDOR_FILE } from "../vision/opencv/cv";
-import type { PipelineStage, RequestOf } from "../worker/protocol";
+import type { PipelineStage, RequestKind, RequestOf } from "../worker/protocol";
 import { isWorkerResponse } from "../worker/protocol";
 
 export const ANALYZE_TIMEOUT_MS = 30_000;
@@ -33,6 +41,9 @@ export class AnalyzeError extends Error {
     super(message);
   }
 }
+export class LiveSessionError extends Error {
+  override name = "LiveSessionError";
+}
 
 export interface WorkerLike {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -42,9 +53,21 @@ export interface WorkerLike {
   onmessageerror: ((event: unknown) => void) | null;
 }
 
+// One live-update pushed from the worker: the full current track
+// list plus per-stage timings for the processed frame.
+export interface LiveUpdate {
+  frameId: FrameId;
+  tracks: Track[];
+  timings: Record<string, number>;
+}
+
 export interface WorkerClient {
   init(onProgress?: InitProgress): Promise<void>;
   analyze(frame: Frame, options?: DetectOptions): Promise<AnalyzeResult>;
+  startLive(onUpdate: (update: LiveUpdate) => void): Promise<void>;
+  sendLiveFrame(frame: Frame, captureMs: number, options?: DetectOptions): void;
+  sendMark(mark: Mark): Promise<void>;
+  stopLive(): Promise<void>;
   dispose(): void;
 }
 
@@ -52,6 +75,11 @@ interface PendingAnalyze {
   resolve(result: AnalyzeResult): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface PendingVoid {
+  resolve(): void;
+  reject(error: Error): void;
 }
 
 function defaultWasmUrl(): string {
@@ -84,6 +112,12 @@ export function createWorkerClient(
   const pending = new Map<FrameId, PendingAnalyze>();
   let fatal: Error | null = null;
   let ready = false;
+  let liveActive = false;
+  let onLiveUpdate: ((update: LiveUpdate) => void) | null = null;
+  let liveStartPending: PendingVoid | null = null;
+  let liveStopPending: PendingVoid | null = null;
+  const markPending = new Map<MarkId, PendingVoid>();
+  let markCounter = 0;
 
   function failAll(error: Error): void {
     fatal = error;
@@ -94,6 +128,14 @@ export function createWorkerClient(
       entry.reject(error);
     }
     pending.clear();
+    liveStartPending?.reject(error);
+    liveStartPending = null;
+    liveStopPending?.reject(error);
+    liveStopPending = null;
+    for (const [, entry] of markPending) entry.reject(error);
+    markPending.clear();
+    liveActive = false;
+    onLiveUpdate = null;
   }
 
   function handleResponse(data: unknown): void {
@@ -116,7 +158,9 @@ export function createWorkerClient(
       case "dropped":
       case "analyze-error": {
         const entry = pending.get(data.frameId);
-        if (!entry) return; // late reply after timeout/failure
+        // no entry: a late reply after timeout/failure, or a live
+        // frame superseded in the worker's mailbox (benign)
+        if (!entry) return;
         pending.delete(data.frameId);
         clearTimeout(entry.timer);
         if (data.type === "result") {
@@ -128,10 +172,32 @@ export function createWorkerClient(
         }
         return;
       }
+      case "live-ready":
+        liveStartPending?.resolve();
+        liveStartPending = null;
+        return;
+      case "live-update":
+        onLiveUpdate?.({
+          frameId: data.frameId,
+          tracks: data.tracks,
+          timings: data.timings,
+        });
+        return;
+      case "mark-ack": {
+        const entry = markPending.get(data.markId);
+        if (!entry) return;
+        markPending.delete(data.markId);
+        entry.resolve();
+        return;
+      }
+      case "live-stopped":
+        liveStopPending?.resolve();
+        liveStopPending = null;
+        return;
     }
   }
 
-  function post<K extends "init" | "analyze">(
+  function post<K extends RequestKind>(
     request: RequestOf<K>,
     transfer?: Transferable[],
   ): void {
@@ -160,6 +226,9 @@ export function createWorkerClient(
     frame: Frame,
     options?: DetectOptions,
   ): Promise<AnalyzeResult> {
+    if (liveActive) {
+      return Promise.reject(new LiveSessionError("stop live before analyze"));
+    }
     return new Promise<AnalyzeResult>((resolve, reject) => {
       // Registers the pending entry and posts the message. Must run
       // synchronously (not via async/await) when already ready, so a
@@ -193,6 +262,83 @@ export function createWorkerClient(
     });
   }
 
+  function startLive(onUpdate: (update: LiveUpdate) => void): Promise<void> {
+    if (pending.size > 0) {
+      return Promise.reject(
+        new LiveSessionError("analyze pending; wait before going live"),
+      );
+    }
+    if (liveActive || liveStartPending) {
+      return Promise.reject(new LiveSessionError("live already active"));
+    }
+    return new Promise<void>((resolve, reject) => {
+      const send = () => {
+        if (fatal) {
+          reject(fatal);
+          return;
+        }
+        liveStartPending = {
+          resolve: () => {
+            liveActive = true;
+            onLiveUpdate = onUpdate;
+            resolve();
+          },
+          reject,
+        };
+        post<"live-start">({ type: "live-start" });
+      };
+      if (ready) {
+        send();
+      } else {
+        init().then(send, reject);
+      }
+    });
+  }
+
+  function sendLiveFrame(
+    frame: Frame,
+    captureMs: number,
+    options?: DetectOptions,
+  ): void {
+    if (!liveActive || fatal) return;
+    // transfer the caller's buffer DIRECTLY: live frames are minted
+    // fresh per capture and never re-analyzed, so — unlike analyze(),
+    // which transfers a copy to keep the source frame usable for
+    // re-analyze — there is nothing to preserve and no reason to pay
+    // for a copy at live rates.
+    post<"live-frame">({ type: "live-frame", frame, captureMs, options }, [
+      frame.pixels,
+    ]);
+  }
+
+  function sendMark(mark: Mark): Promise<void> {
+    if (fatal) return Promise.reject(fatal);
+    if (!liveActive) {
+      return Promise.reject(new LiveSessionError("live not active"));
+    }
+    return new Promise<void>((resolve, reject) => {
+      const id = markId(++markCounter);
+      markPending.set(id, { resolve, reject });
+      post<"live-feedback">({ type: "live-feedback", markId: id, mark });
+    });
+  }
+
+  function stopLive(): Promise<void> {
+    if (!liveActive) return Promise.resolve();
+    if (fatal) return Promise.reject(fatal);
+    return new Promise<void>((resolve, reject) => {
+      liveStopPending = {
+        resolve: () => {
+          liveActive = false;
+          onLiveUpdate = null;
+          resolve();
+        },
+        reject,
+      };
+      post<"live-stop">({ type: "live-stop" });
+    });
+  }
+
   function dispose(): void {
     failAll(new DisposedError("client disposed"));
     worker?.terminate();
@@ -200,5 +346,13 @@ export function createWorkerClient(
     initPromise = null;
   }
 
-  return { init, analyze, dispose };
+  return {
+    init,
+    analyze,
+    startLive,
+    sendLiveFrame,
+    sendMark,
+    stopLive,
+    dispose,
+  };
 }

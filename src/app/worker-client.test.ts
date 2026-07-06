@@ -6,10 +6,11 @@ import {
   AnalyzeError,
   AnalyzeTimeoutError,
   DisposedError,
+  LiveSessionError,
   WorkerDiedError,
   createWorkerClient,
 } from "./worker-client";
-import type { WorkerLike } from "./worker-client";
+import type { LiveUpdate, WorkerLike } from "./worker-client";
 
 class FakeWorker implements WorkerLike {
   sent: { message: WorkerRequest; transfer?: Transferable[] }[] = [];
@@ -185,5 +186,109 @@ describe("analyze", () => {
     c.dispose();
     expect(worker.terminated).toBe(true);
     await expect(resulted).rejects.toBeInstanceOf(DisposedError);
+  });
+});
+
+describe("live", () => {
+  async function readyClient() {
+    const c = client();
+    const initialized = c.init();
+    worker.emit({ type: "ready" });
+    await initialized;
+    return c;
+  }
+
+  async function liveClient(onUpdate: (u: LiveUpdate) => void = () => {}) {
+    const c = await readyClient();
+    const started = c.startLive(onUpdate);
+    worker.emit({ type: "live-ready" });
+    await started;
+    return c;
+  }
+
+  test("startLive resolves on live-ready and routes live-updates", async () => {
+    const updates: LiveUpdate[] = [];
+    await liveClient((u) => updates.push(u));
+    expect(worker.sent[1].message).toEqual({ type: "live-start" });
+    worker.emit({
+      type: "live-update",
+      frameId: frameId(1),
+      tracks: [],
+      timings: { capture: 4 },
+    });
+    expect(updates).toEqual([
+      { frameId: frameId(1), tracks: [], timings: { capture: 4 } },
+    ]);
+  });
+
+  test("sendLiveFrame transfers the buffer (no slice)", async () => {
+    const c = await liveClient();
+    const frame = frameOf(3);
+    c.sendLiveFrame(frame, 6);
+    const sent = worker.sent[2];
+    expect(sent.message.type).toBe("live-frame");
+    if (sent.message.type !== "live-frame") throw new Error("unreachable");
+    // live frames are minted fresh per capture: the client transfers
+    // the caller's buffer itself, not a copy
+    expect(sent.message.frame.pixels).toBe(frame.pixels);
+    expect(sent.transfer).toEqual([frame.pixels]);
+    expect(sent.message.captureMs).toBe(6);
+  });
+
+  test("analyze rejects with LiveSessionError while live", async () => {
+    const c = await liveClient();
+    await expect(c.analyze(frameOf(4))).rejects.toBeInstanceOf(
+      LiveSessionError,
+    );
+  });
+
+  test("startLive rejects while an analyze is pending", async () => {
+    const c = await readyClient();
+    const resulted = c.analyze(frameOf(5));
+    await expect(c.startLive(() => {})).rejects.toBeInstanceOf(
+      LiveSessionError,
+    );
+    worker.emit({
+      type: "result",
+      frameId: frameId(5),
+      analysis: analysisOf(5),
+    });
+    await resulted;
+  });
+
+  test("sendMark resolves on mark-ack with the same markId", async () => {
+    const c = await liveClient();
+    const acked = c.sendMark({ type: "missed-card", at: { x: 1, y: 2 } });
+    const sent = worker.sent[2].message;
+    expect(sent.type).toBe("live-feedback");
+    if (sent.type !== "live-feedback") throw new Error("unreachable");
+    worker.emit({ type: "mark-ack", markId: sent.markId });
+    await expect(acked).resolves.toBeUndefined();
+  });
+
+  test("stopLive resolves on live-stopped and re-enables analyze", async () => {
+    const c = await liveClient();
+    const stopped = c.stopLive();
+    worker.emit({ type: "live-stopped" });
+    await stopped;
+    const resulted = c.analyze(frameOf(6));
+    worker.emit({
+      type: "result",
+      frameId: frameId(6),
+      analysis: analysisOf(6),
+    });
+    await expect(resulted).resolves.toEqual({
+      status: "ok",
+      analysis: analysisOf(6),
+    });
+  });
+
+  test("failAll rejects pending mark and stop promises", async () => {
+    const c = await liveClient();
+    const acked = c.sendMark({ type: "not-a-card", at: { x: 1, y: 2 } });
+    const stopped = c.stopLive();
+    worker.onerror?.(new Event("error"));
+    await expect(acked).rejects.toBeInstanceOf(WorkerDiedError);
+    await expect(stopped).rejects.toBeInstanceOf(WorkerDiedError);
   });
 });
