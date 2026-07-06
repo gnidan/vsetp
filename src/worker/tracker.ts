@@ -5,10 +5,11 @@ import type {
   Mark,
   Point,
   Quad,
+  Track,
   TrackId,
   TrackState,
 } from "../model";
-import { cardKey, trackId } from "../model";
+import { cardFromKey, cardKey, trackId } from "../model";
 import { aabbIou, centroid, distance, quadArea } from "./quad-utils";
 
 export const TRACK_RETIRE_FRAMES = 8;
@@ -72,6 +73,7 @@ export interface TrackTable {
   suppressions: Suppression[];
   grace: GraceTally[];
   roiQueue: Point[];
+  frameSize: { width: number; height: number } | null;
 }
 
 export interface AdvanceInput {
@@ -95,6 +97,7 @@ export function createTrackTable(): TrackTable {
     suppressions: [],
     grace: [],
     roiQueue: [],
+    frameSize: null,
   };
 }
 
@@ -368,11 +371,15 @@ function selectClassify(table: TrackTable): { id: TrackId; quad: Quad }[] {
   return selected.map((t) => ({ id: t.id, quad: t.quad }));
 }
 
+// Advances the table by one frame: mutates `table` in place (tracks,
+// faceMemory, suppressions, grace, roiQueue, frameSize) and returns
+// this frame's classify/ROI requests.
 export function advanceTracks(
   table: TrackTable,
   input: AdvanceInput,
 ): AdvanceOutput {
   table.ordinal += 1;
+  table.frameSize = input.frameSize;
 
   applyMarks(table, input.marks);
 
@@ -395,4 +402,154 @@ export function advanceTracks(
   const roiRequests = table.roiQueue.splice(0);
 
   return { toClassify, roiRequests };
+}
+
+export interface ClassificationResult {
+  id: TrackId;
+  outcome: { card: Card; confidence: AttributeConfidence } | null;
+}
+
+function frameDiagonal(table: TrackTable): number | null {
+  if (!table.frameSize) return null;
+  return Math.hypot(table.frameSize.width, table.frameSize.height);
+}
+
+// true if some OTHER track currently holds `key` as its locked
+// reading — face memory must never steal a key from a live lock.
+function keyHeldByLockedTrack(
+  table: TrackTable,
+  key: CardKey,
+  exclude: TrackRecord,
+): boolean {
+  return table.tracks.some(
+    (t) =>
+      t !== exclude &&
+      t.state === "locked" &&
+      t.reading != null &&
+      cardKey(t.reading) === key,
+  );
+}
+
+// Deterministic plurality tie-break: highest vote count; ties go to
+// the current runKey if it's among the leaders, else the
+// lexicographically smallest key.
+function pluralityKey(consensus: Consensus): CardKey {
+  let max = -1;
+  for (const key of Object.keys(consensus.votes)) {
+    const count = consensus.votes[key];
+    if (count > max) max = count;
+  }
+  const leaders = Object.keys(consensus.votes).filter(
+    (key) => consensus.votes[key] === max,
+  );
+  if (consensus.runKey && leaders.includes(consensus.runKey)) {
+    return consensus.runKey;
+  }
+  leaders.sort();
+  return leaders[0] as CardKey;
+}
+
+function lock(
+  track: TrackRecord,
+  table: TrackTable,
+  card: Card,
+  confidence: AttributeConfidence,
+): void {
+  track.state = "locked";
+  track.reading = card;
+  track.confidence = confidence;
+  track.lockedArea = quadArea(track.quad);
+  track.lastVerified = table.ordinal;
+}
+
+// Applies live-classification results to their tracks: consensus
+// voting toward a lock, face-memory instant reattachment, and
+// locked-track re-verification. Mutates `table` in place; results
+// for tracks that no longer exist (retired/evicted) are skipped.
+export function applyClassifications(
+  table: TrackTable,
+  results: ClassificationResult[],
+  _nowMs: number,
+): void {
+  for (const result of results) {
+    const track = table.tracks.find((t) => t.id === result.id);
+    if (!track) continue;
+
+    if (result.outcome === null) {
+      track.consensus.attempts += 1;
+      continue;
+    }
+
+    const { card, confidence } = result.outcome;
+    const key = cardKey(card);
+
+    if (track.state === "locked") {
+      const lockedKey = track.reading ? cardKey(track.reading) : null;
+      if (key === lockedKey) {
+        track.lastVerified = table.ordinal;
+        const entry = table.faceMemory.get(key);
+        if (entry) entry.lastSeenAt = centroid(track.quad);
+      } else {
+        track.state = "reading";
+        track.consensus = {
+          votes: { [key]: 1 },
+          runKey: key,
+          run: 1,
+          attempts: 1,
+        };
+        track.lockedArea = null;
+        track.bigFrames = 0;
+      }
+      continue;
+    }
+
+    if (track.state === "tentative") track.state = "reading";
+
+    const isFirstClassification = track.consensus.attempts === 0;
+    if (isFirstClassification) {
+      const entry = table.faceMemory.get(key);
+      const diagonal = frameDiagonal(table);
+      const withinRadius =
+        entry != null &&
+        diagonal != null &&
+        distance(centroid(track.quad), entry.lastSeenAt) <=
+          FACE_MEMORY_RADIUS_FACTOR * diagonal;
+      if (entry && withinRadius && !keyHeldByLockedTrack(table, key, track)) {
+        lock(track, table, card, confidence);
+        entry.lastSeenAt = centroid(track.quad);
+        continue;
+      }
+    }
+
+    const consensus = track.consensus;
+    consensus.votes[key] = (consensus.votes[key] ?? 0) + 1;
+    if (key === consensus.runKey) {
+      consensus.run += 1;
+    } else {
+      consensus.runKey = key;
+      consensus.run = 1;
+    }
+    consensus.attempts += 1;
+
+    if (consensus.run >= CONSENSUS_TO_LOCK) {
+      lock(track, table, card, confidence);
+      table.faceMemory.set(key, { card, lastSeenAt: centroid(track.quad) });
+    } else if (consensus.attempts >= MAX_CONSENSUS_ATTEMPTS) {
+      track.state = "uncertain-locked";
+      track.reading = cardFromKey(pluralityKey(consensus));
+      track.confidence = confidence;
+    }
+  }
+}
+
+// Maps the internal table to the wire representation (Tasks 8-9).
+export function projectTracks(table: TrackTable): Track[] {
+  return table.tracks.map((t) => ({
+    trackId: t.id,
+    quad: t.quad,
+    state: t.state,
+    reading: t.reading ?? undefined,
+    confidence: t.confidence ?? undefined,
+    provenance: t.provenance,
+  }));
 }

@@ -1,13 +1,31 @@
 import { describe, expect, it } from "vitest";
-import type { Mark, Quad } from "../model";
+import { allCards, cardFromKey, cardKey } from "../model";
+import type { CardKey, Mark, Quad } from "../model";
 import {
   advanceTracks,
+  applyClassifications,
+  CONSENSUS_TO_LOCK,
   createTrackTable,
   LIVE_CLASSIFY_BUDGET,
+  MAX_CONSENSUS_ATTEMPTS,
+  projectTracks,
+  REVERIFY_INTERVAL_FRAMES,
   TRACK_RETIRE_FRAMES,
 } from "./tracker";
 
 const FRAME = { width: 768, height: 576 };
+
+const CARD_A = cardFromKey("1-red-oval-solid" as CardKey);
+const CARD_B = cardFromKey("1-red-diamond-solid" as CardKey);
+const conf = { count: 1, color: 1, shape: 1, fill: 1 };
+
+function classify(table: any, id: any, card: any, nowMs = 0) {
+  applyClassifications(
+    table,
+    [{ id, outcome: { card, confidence: conf } }],
+    nowMs,
+  );
+}
 
 const rect = (x: number, y: number, w = 90, h = 58): Quad => [
   { x, y },
@@ -112,5 +130,206 @@ describe("advanceTracks classify budget", () => {
     step(table, [rect(10, 10)]);
     const out = step(table, []); // track missing this frame
     expect(out.toClassify).toHaveLength(0);
+  });
+});
+
+describe("consensus and locking", () => {
+  it("locks after CONSENSUS_TO_LOCK consecutive agreeing reads", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    for (let i = 0; i < CONSENSUS_TO_LOCK; i++) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, CARD_A);
+    }
+    expect(table.tracks[0].state).toBe("locked");
+    expect(cardKey(table.tracks[0].reading!)).toBe("1-red-oval-solid");
+  });
+
+  it("oscillating reads escape to uncertain-locked (plurality)", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    const seq = Array.from({ length: MAX_CONSENSUS_ATTEMPTS }, (_, i) =>
+      i % 2 === 0 ? CARD_A : CARD_B,
+    );
+    for (const card of seq) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, card);
+    }
+    expect(table.tracks[0].state).toBe("uncertain-locked");
+    expect(cardKey(table.tracks[0].reading!)).toBe("1-red-oval-solid");
+  });
+
+  it("a locked track is not re-selected before the re-verify interval", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    for (let i = 0; i < CONSENSUS_TO_LOCK; i++) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, CARD_A);
+    }
+    const out = step(table, [rect(10, 10)]);
+    expect(out.toClassify).toHaveLength(0);
+  });
+
+  it("re-verify: disagreeing re-read demotes and self-heals (swap)", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    for (let i = 0; i < CONSENSUS_TO_LOCK; i++) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, CARD_A);
+    }
+    // idle past the re-verify interval; the lock becomes due
+    let selected: any[] = [];
+    for (let i = 0; i <= REVERIFY_INTERVAL_FRAMES; i++) {
+      selected = step(table, [rect(10, 10)]).toClassify;
+    }
+    expect(selected.map((s) => s.id)).toContain(id);
+    // the physical card was swapped: re-read disagrees
+    classify(table, id, CARD_B);
+    expect(table.tracks[0].state).toBe("reading");
+    // consensus on the new face re-locks
+    for (let i = 0; i < CONSENSUS_TO_LOCK - 1; i++) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, CARD_B);
+    }
+    expect(table.tracks[0].state).toBe("locked");
+    expect(cardKey(table.tracks[0].reading!)).toBe("1-red-diamond-solid");
+  });
+});
+
+describe("face memory", () => {
+  function lockAt(table: any, x: number, y: number, card: any) {
+    step(table, [rect(x, y)]);
+    const id = table.tracks.find(
+      (t: any) => t.quad[0].x === x && t.state !== "locked",
+    ).id;
+    for (let i = 0; i < CONSENSUS_TO_LOCK; i++) {
+      step(table, [rect(x, y)]);
+      classify(table, id, card);
+    }
+    return id;
+  }
+
+  it("reattaches a known face near its last position instantly", () => {
+    const table = createTrackTable();
+    lockAt(table, 10, 10, CARD_A);
+    // pan away: retire everything
+    for (let i = 0; i <= TRACK_RETIRE_FRAMES; i++) step(table, []);
+    expect(table.tracks).toHaveLength(0);
+    // pan back: same spot, FIRST read matches memory -> instant lock
+    step(table, [rect(14, 12)]);
+    const id = table.tracks[0].id;
+    step(table, [rect(14, 12)]);
+    classify(table, id, CARD_A);
+    expect(table.tracks[0].state).toBe("locked");
+  });
+
+  it("does NOT instant-lock an unknown face (validates, never creates)", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    step(table, [rect(10, 10)]);
+    classify(table, id, CARD_A); // no memory entry for CARD_A
+    expect(table.tracks[0].state).toBe("reading"); // consensus path
+  });
+
+  it("rejects spatially implausible reattachment", () => {
+    const table = createTrackTable();
+    lockAt(table, 10, 10, CARD_A);
+    for (let i = 0; i <= TRACK_RETIRE_FRAMES; i++) step(table, []);
+    // reappears across the table (beyond 25% of diagonal)
+    step(table, [rect(650, 500)]);
+    const id = table.tracks[0].id;
+    step(table, [rect(650, 500)]);
+    classify(table, id, CARD_A);
+    expect(table.tracks[0].state).toBe("reading"); // no teleport lock
+  });
+
+  it("never steals a key claimed by a live locked track", () => {
+    const table = createTrackTable();
+    lockAt(table, 10, 10, CARD_A);
+    // second card nearby misread as the SAME face on first read
+    step(table, [rect(10, 10), rect(140, 10)]);
+    const other = table.tracks.find((t: any) => t.state === "tentative")!;
+    step(table, [rect(10, 10), rect(140, 10)]);
+    classify(table, other.id, CARD_A);
+    expect(other.state).toBe("reading"); // consensus, not instant lock
+  });
+
+  it("wrong mark evicts face memory and unlocks", () => {
+    const table = createTrackTable();
+    lockAt(table, 10, 10, CARD_A);
+    step(table, [rect(10, 10)], [{ type: "wrong", key: cardKey(CARD_A) }]);
+    expect(table.tracks[0].state).toBe("reading");
+    expect(table.faceMemory.has(cardKey(CARD_A))).toBe(false);
+  });
+});
+
+describe("consensus grace", () => {
+  it("brief occlusion preserves partial consensus", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)], [], 0);
+    const id = table.tracks[0].id;
+    // 2 of 3 agreeing reads
+    step(table, [rect(10, 10)], [], 100);
+    classify(table, id, CARD_A, 100);
+    step(table, [rect(10, 10)], [], 200);
+    classify(table, id, CARD_A, 200);
+    // occlusion past retirement, under CONSENSUS_GRACE_MS
+    for (let i = 0; i <= TRACK_RETIRE_FRAMES; i++) {
+      step(table, [], [], 300 + i * 100);
+    }
+    expect(table.tracks).toHaveLength(0);
+    // reappears in place within grace: adopts the tally
+    step(table, [rect(10, 10)], [], 1500);
+    const revived = table.tracks[0];
+    expect(revived.state).toBe("reading");
+    // ONE more agreeing read completes the 3-run
+    step(table, [rect(10, 10)], [], 1600);
+    classify(table, revived.id, CARD_A, 1600);
+    expect(revived.state).toBe("locked");
+  });
+});
+
+describe("projectTracks", () => {
+  it("projects wire tracks without nulls", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const tracks = projectTracks(table);
+    expect(tracks[0]).toEqual({
+      trackId: table.tracks[0].id,
+      quad: table.tracks[0].quad,
+      state: "tentative",
+      reading: undefined,
+      confidence: undefined,
+      provenance: undefined,
+    });
+  });
+});
+
+describe("time-to-all-locked bound", () => {
+  it("locks a static 20-card tableau within 60 frames", () => {
+    const table = createTrackTable();
+    const quads = Array.from({ length: 20 }, (_, i) =>
+      rect(20 + (i % 5) * 140, 20 + Math.floor(i / 5) * 120),
+    );
+    const faces = allCards().slice(0, 20);
+    let frames = 0;
+    while (
+      table.tracks.filter((t) => t.state === "locked").length < 20 &&
+      frames < 60
+    ) {
+      const out = step(table, quads, [], frames * 100);
+      const results = out.toClassify.map(({ id }) => {
+        const idx = table.tracks.findIndex((t) => t.id === id);
+        return { id, outcome: { card: faces[idx], confidence: conf } };
+      });
+      applyClassifications(table, results, frames * 100);
+      frames++;
+    }
+    expect(frames).toBeLessThan(60); // 6s @ 10fps (spec p50 bound)
   });
 });
