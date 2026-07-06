@@ -83,7 +83,10 @@ scope.onmessage = (event: MessageEvent) => {
     void initialize(data.wasmUrl);
     return;
   }
-  // analyze
+  // Live routing lands with the live session (Plan D1 Task 8);
+  // until then live requests are unreachable (no client sends them)
+  // and are dropped here to keep the narrowing exhaustive.
+  if (data.type !== "analyze") return;
   const dropped = accept(mailbox, {
     frame: data.frame,
     options: data.options,
