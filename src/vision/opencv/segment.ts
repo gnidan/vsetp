@@ -26,6 +26,39 @@ const INK_GATES: { minSaturation: number; maxValue: number }[] = [
   { minSaturation: 15, maxValue: 175 },
 ];
 
+// The ladder's V ceilings are absolute, but card brightness is not:
+// pic421151's dim-corner cards measure border (white-reference)
+// median V of only 134-146 — BELOW even the strictest 140 ceiling —
+// so on every rung the whole card face gated as one giant ink region
+// (0.65-0.81 of the raster, discarded as > MAX_SYMBOL_AREA_FRACTION)
+// and the card was dropped as zero-region/face-down, or the face
+// patches merged into the symbol regions and mangled their hulls.
+// A border-RELATIVE rung fixes those cards: dark means dark compared
+// to the card's own white. It is appended to the ladder rather than
+// capping the absolute rungs, because the two bands overlap ACROSS
+// cards: pic1014255's palest open strokes ride the dark arm up to
+// 0.875 x their borderV (V 160-175, borderV 200) while pic421151's
+// face pixels reach DOWN to 0.86 x theirs (face p01 115-127, borderV
+// 134-146) — a global cap that admits the former admits the latter
+// (measured: fraction 0.75 broke pic1014255/pic2934145 purple opens;
+// 0.85 still clipped pic1014255's 1-purple-oval-open outline into a
+// squiggle hull). As its own rung, the relative ceiling only wins a
+// card when it scores strictly better than every absolute rung
+// (more whole symbols / fewer fragments), so cards the absolute
+// ladder already reads stay exactly as they were.
+//
+// Ceiling fraction: the relative dark arm's customers are solid
+// purple symbols — the only ink that is dark AND desaturated on the
+// dim cards — at p10 <= 0.66 x borderV (58-122 at borderV 145-185);
+// face pixels start at 0.86 x borderV (above). 0.75 splits the
+// bands with margin on both sides. S floor stays at the strictest
+// 40: outline strokes on the dim pic421151 cards still measure S
+// p99 122-204, while their low-S face noise must not enter.
+const RELATIVE_DARK_GATE = {
+  minSaturation: 40,
+  maxValueBorderFraction: 0.75,
+};
+
 // seal breaks in pale/blurry outline strokes before contour
 // extraction: a broken open-symbol outline otherwise decomposes into
 // thin arc strips that all fall below MIN_SYMBOL_AREA_FRACTION
@@ -145,9 +178,31 @@ export function segmentSymbols(cv: Cv, card: ImageData): SymbolRegion[] {
     const ringX = Math.max(2, Math.round(card.width * BORDER_RING));
     const ringY = Math.max(2, Math.round(card.height * BORDER_RING));
 
+    // border-ring median V: the card's own white-reference brightness
+    // (see RELATIVE_DARK_GATE)
+    const borderV: number[] = [];
+    for (let y = 0; y < card.height; y++) {
+      const inBorderRow = y < ringY || y >= card.height - ringY;
+      for (let x = 0; x < card.width; x++) {
+        if (!inBorderRow && x >= ringX && x < card.width - ringX) continue;
+        borderV.push(valueChannel.data[y * card.width + x]);
+      }
+    }
+    borderV.sort((a, b) => a - b);
+    const borderMedianV = borderV[borderV.length >> 1];
+    const gates = [
+      ...INK_GATES,
+      {
+        minSaturation: RELATIVE_DARK_GATE.minSaturation,
+        maxValue: Math.round(
+          borderMedianV * RELATIVE_DARK_GATE.maxValueBorderFraction,
+        ),
+      },
+    ];
+
     let best: SymbolRegion[] = [];
     let bestScore = -Infinity;
-    for (const gate of INK_GATES) {
+    for (const gate of gates) {
       let saturated: Cv = null;
       let dark: Cv = null;
       let ink: Cv = null;
