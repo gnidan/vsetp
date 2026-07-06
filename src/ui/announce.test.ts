@@ -95,7 +95,7 @@ describe("announcementFor", () => {
     expect(announcementFor(state)).toBe("Analyzing…");
   });
 
-  test("results with sets found reports sets and card count", () => {
+  test("sets mode results with sets found reports sets and cards", () => {
     const keys = Array.from({ length: 12 }, () => "1-red-oval-solid");
     const state: AppState = {
       engine: { status: "ready" },
@@ -106,11 +106,12 @@ describe("announcementFor", () => {
         triples: [[cardId(0), cardId(1), cardId(2)]],
         selected: 0,
       },
+      reveal: "sets",
     };
     expect(announcementFor(state)).toBe("1 set found. 12 cards read.");
   });
 
-  test("results with no sets reports card count", () => {
+  test("sets mode results with no sets reports card count", () => {
     const keys = Array.from({ length: 8 }, () => "1-red-oval-solid");
     const state: AppState = {
       engine: { status: "ready" },
@@ -121,7 +122,100 @@ describe("announcementFor", () => {
         triples: [],
         selected: -1,
       },
+      reveal: "sets",
     };
     expect(announcementFor(state)).toBe("No set found among the 8 cards.");
+  });
+
+  test("cards mode results reports only the card count", () => {
+    const keys = Array.from({ length: 12 }, () => "1-red-oval-solid");
+    const state: AppState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "results",
+        capture: captureOf(4),
+        analysis: analysisOf(4, keys),
+        triples: [[cardId(0), cardId(1), cardId(2)]],
+        selected: 0,
+      },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe("12 cards read.");
+  });
+
+  test("presence mode results with a set reports presence", () => {
+    const keys = Array.from({ length: 12 }, () => "1-red-oval-solid");
+    const state: AppState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "results",
+        capture: captureOf(5),
+        analysis: analysisOf(5, keys),
+        triples: [[cardId(0), cardId(1), cardId(2)]],
+        selected: 0,
+      },
+      reveal: "presence",
+    };
+    expect(announcementFor(state)).toBe("12 cards read. A set is present.");
+  });
+
+  test("presence mode results without a set reports absence", () => {
+    const keys = Array.from({ length: 8 }, () => "1-red-oval-solid");
+    const state: AppState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "results",
+        capture: captureOf(6),
+        analysis: analysisOf(6, keys),
+        triples: [],
+        selected: -1,
+      },
+      reveal: "presence",
+    };
+    expect(announcementFor(state)).toBe("8 cards read. No set here.");
+  });
+
+  test("cards mode still appends the edge notice", () => {
+    const analysis = analysisOf(7, [
+      "1-red-oval-solid",
+      "2-red-oval-solid",
+    ]);
+    analysis.cards[0].quad = [
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+      { x: 40, y: 40 },
+      { x: 0, y: 40 },
+    ];
+    const state: AppState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "results",
+        capture: captureOf(7),
+        analysis,
+        triples: [],
+        selected: -1,
+      },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe(
+      "2 cards read. Some cards are cut off at the edge.",
+    );
+  });
+
+  test("cards mode with no cards keeps the framing guidance", () => {
+    const state: AppState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "results",
+        capture: captureOf(8),
+        analysis: analysisOf(8, []),
+        triples: [],
+        selected: -1,
+      },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe(
+      "No cards detected. Try filling the frame with the spread.",
+    );
   });
 });

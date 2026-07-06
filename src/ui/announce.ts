@@ -30,13 +30,20 @@ export function announcementFor(state: AppState): string {
     case "results": {
       const sets = screen.triples.length;
       const cards = screen.analysis.cards.length;
+      // Spoiler parity: below "sets" reveal, announcements must not
+      // leak set information beyond what the mode discloses.
       const summary =
         cards === 0
           ? "No cards detected. Try filling the frame with the spread."
-          : sets === 0
-            ? `No set found among the ${cards} cards.`
-            : `${sets} set${sets > 1 ? "s" : ""} found. ` +
-              `${cards} cards read.`;
+          : state.reveal === "cards"
+            ? `${cards} cards read.`
+            : state.reveal === "presence"
+              ? `${cards} cards read. ` +
+                (sets > 0 ? "A set is present." : "No set here.")
+              : sets === 0
+                ? `No set found among the ${cards} cards.`
+                : `${sets} set${sets > 1 ? "s" : ""} found. ` +
+                  `${cards} cards read.`;
       const edge = edgeNotice(screen.analysis);
       return edge ? `${summary} ${edge}` : summary;
     }
