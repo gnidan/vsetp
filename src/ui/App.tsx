@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
+import { installDecision, isIosSafari } from "../app/install";
 import { initialState, reduce } from "../app/state";
 import type { WorkerClient } from "../app/worker-client";
 import {
@@ -13,6 +14,22 @@ import { CaptureView } from "./CaptureView";
 import { Hud } from "./Hud";
 import { PresenceBorder } from "./PresenceBorder";
 import { SrResults } from "./SrResults";
+
+const INSTALL_DISMISSED_KEY = "vsetp-install-dismissed";
+
+// Not in lib.dom.d.ts: the beforeinstallprompt event and its
+// one-shot .prompt()/.userChoice contract are Chromium-only.
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
+function isStandaloneDisplay(): boolean {
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches === true ||
+    (navigator as { standalone?: boolean }).standalone === true
+  );
+}
 
 // Copy by error class name, not raw message: an engine-init failure
 // (bad network, bad WASM fetch) and a mid-session worker death read
@@ -41,6 +58,13 @@ function Session({ onRetry }: { onRetry(): void }) {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
   const clientRef = useRef<WorkerClient | null>(null);
   const lastCapture = useRef<Capture | null>(null);
+  const lastCountedCapture = useRef<Capture | null>(null);
+  const deferredInstallPrompt = useRef<BeforeInstallPromptEvent | null>(null);
+  const [hasDeferredPrompt, setHasDeferredPrompt] = useState(false);
+  const [successes, setSuccesses] = useState(0);
+  const [installDismissed, setInstallDismissed] = useState(
+    () => localStorage.getItem(INSTALL_DISMISSED_KEY) === "1",
+  );
 
   const startEngine = (client: WorkerClient) =>
     client
@@ -83,6 +107,37 @@ function Session({ onRetry }: { onRetry(): void }) {
       lastCapture.current.revoke();
     }
     lastCapture.current = current;
+  }, [state.screen]);
+
+  // contextual install CTA: hold the deferred prompt so it can be
+  // fired later from the results-screen banner, never on load
+  useEffect(() => {
+    function onBeforeInstallPrompt(event: Event) {
+      event.preventDefault();
+      deferredInstallPrompt.current = event as BeforeInstallPromptEvent;
+      setHasDeferredPrompt(true);
+    }
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    return () =>
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+  }, []);
+
+  // a success is an analysis-ok that reaches results with >=1 card;
+  // counted once per capture (ref identity), so a reanalyze or
+  // select-set re-fire on the same capture doesn't double-count. A
+  // single slot suffices: every new capture is a fresh object, so
+  // only the current one can repeat — and holding it adds no
+  // retention beyond what the screen already keeps alive.
+  useEffect(() => {
+    const { screen } = state;
+    if (
+      screen.phase === "results" &&
+      screen.analysis.cards.length > 0 &&
+      lastCountedCapture.current !== screen.capture
+    ) {
+      lastCountedCapture.current = screen.capture;
+      setSuccesses((n) => n + 1);
+    }
   }, [state.screen]);
 
   function analyzeCapture(client: WorkerClient, capture: Capture) {
@@ -131,6 +186,28 @@ function Session({ onRetry }: { onRetry(): void }) {
     void startEngine(client); // no-op unless init was saveData-deferred
     analyzeCapture(client, capture);
   }
+
+  function dismissInstallBanner() {
+    localStorage.setItem(INSTALL_DISMISSED_KEY, "1");
+    setInstallDismissed(true);
+  }
+
+  async function onInstallClick() {
+    const event = deferredInstallPrompt.current;
+    if (!event) return;
+    // a deferred prompt can only be triggered once
+    deferredInstallPrompt.current = null;
+    setHasDeferredPrompt(false);
+    await event.prompt();
+  }
+
+  const install = installDecision({
+    hasDeferredPrompt,
+    isIos: isIosSafari(navigator.userAgent),
+    isStandalone: isStandaloneDisplay(),
+    dismissed: installDismissed,
+    successes,
+  });
 
   const { engine, screen, reveal } = state;
 
@@ -191,22 +268,52 @@ function Session({ onRetry }: { onRetry(): void }) {
                 {reveal === "presence" && (
                   <PresenceBorder present={screen.triples.length > 0} />
                 )}
-                <Hud
-                  analysis={screen.analysis}
-                  triples={screen.triples}
-                  selected={screen.selected}
-                  reveal={reveal}
-                  onSelect={(index) => dispatch({ type: "select-set", index })}
-                  onReveal={(mode) => dispatch({ type: "set-reveal", mode })}
-                  onRetake={() => dispatch({ type: "retake" })}
-                  onReanalyze={() => {
-                    const client = clientRef.current;
-                    if (!client) return;
-                    const capture = screen.capture;
-                    dispatch({ type: "reanalyze" });
-                    analyzeCapture(client, capture);
-                  }}
-                />
+                <div className="hud-stack">
+                  {install !== "none" && (
+                    <div className="notice install-banner">
+                      {install === "prompt" ? (
+                        <button
+                          type="button"
+                          className="install-action"
+                          onClick={() => void onInstallClick()}
+                        >
+                          Install vsetp
+                        </button>
+                      ) : (
+                        <span>
+                          Add to Home Screen from the share menu to keep vsetp
+                          handy.
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="notice-dismiss"
+                        aria-label="Dismiss install banner"
+                        onClick={dismissInstallBanner}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+                  <Hud
+                    analysis={screen.analysis}
+                    triples={screen.triples}
+                    selected={screen.selected}
+                    reveal={reveal}
+                    onSelect={(index) =>
+                      dispatch({ type: "select-set", index })
+                    }
+                    onReveal={(mode) => dispatch({ type: "set-reveal", mode })}
+                    onRetake={() => dispatch({ type: "retake" })}
+                    onReanalyze={() => {
+                      const client = clientRef.current;
+                      if (!client) return;
+                      const capture = screen.capture;
+                      dispatch({ type: "reanalyze" });
+                      analyzeCapture(client, capture);
+                    }}
+                  />
+                </div>
                 <SrResults
                   analysis={screen.analysis}
                   triples={screen.triples}
