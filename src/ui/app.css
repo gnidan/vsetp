@@ -97,6 +97,29 @@ body {
 .outline.uncertain {
   stroke-dasharray: 18 12;
 }
+.set-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.set-lines polygon {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.presence-border {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  border: 12px solid;
+  z-index: 4;
+}
+.presence-border.present {
+  border-color: #22c55e;
+}
+.presence-border.absent {
+  border-color: #ef4444;
+}
 .busy {
   position: absolute;
   inset: 0;
@@ -179,6 +202,7 @@ body {
   right: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.75rem;
   padding: 0.75rem calc(env(safe-area-inset-right) + 1rem)
     calc(env(safe-area-inset-bottom) + 0.75rem)
@@ -196,6 +220,7 @@ body {
   gap: 0.4rem;
 }
 .hud-chips button,
+.hud-reveal button,
 .hud-actions button {
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -203,7 +228,23 @@ body {
   color: #f2f5f9;
   padding: 0.45rem 0.9rem;
 }
-.hud-chips button[aria-pressed="true"] {
+.hud-chips button[aria-pressed="true"],
+.hud-reveal button[aria-pressed="true"] {
   border-color: #00e5ff;
   color: #00e5ff;
+}
+.hud-reveal {
+  display: flex;
+}
+.hud-reveal button {
+  border-radius: 0;
+}
+.hud-reveal button + button {
+  border-left: none;
+}
+.hud-reveal button:first-child {
+  border-radius: 999px 0 0 999px;
+}
+.hud-reveal button:last-child {
+  border-radius: 0 999px 999px 0;
 }

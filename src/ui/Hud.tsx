@@ -1,32 +1,63 @@
+import type { RevealMode } from "../app/state";
 import type { FrameAnalysis } from "../model";
 import type { SetTriple } from "../set";
+
+// Ladder order — the segmented control renders these left to right.
+const REVEAL_STEPS: { mode: RevealMode; label: string }[] = [
+  { mode: "cards", label: "Cards" },
+  { mode: "presence", label: "Set?" },
+  { mode: "sets", label: "Sets" },
+];
+
+function summaryFor(reveal: RevealMode, cards: number, sets: number): string {
+  if (cards === 0) return "No cards found";
+  switch (reveal) {
+    case "cards":
+      return `${cards} cards read`;
+    case "presence":
+      return sets > 0 ? "A set is present" : "No set here";
+    case "sets":
+      return sets === 0
+        ? "No set here"
+        : `${sets} set${sets > 1 ? "s" : ""} found`;
+  }
+}
 
 export function Hud({
   analysis,
   triples,
   selected,
+  reveal,
   onSelect,
+  onReveal,
   onRetake,
   onReanalyze,
 }: {
   analysis: FrameAnalysis;
   triples: SetTriple[];
   selected: number;
+  reveal: RevealMode;
   onSelect(index: number): void;
+  onReveal(mode: RevealMode): void;
   onRetake(): void;
   onReanalyze(): void;
 }) {
-  const cards = analysis.cards.length;
-  const summary =
-    cards === 0
-      ? "No cards found"
-      : triples.length === 0
-        ? "No set here"
-        : `${triples.length} set${triples.length > 1 ? "s" : ""} found`;
+  const summary = summaryFor(reveal, analysis.cards.length, triples.length);
   return (
     <div className="hud">
       <p className="hud-summary">{summary}</p>
-      {triples.length > 1 && (
+      <div className="hud-reveal" role="group" aria-label="Reveal level">
+        {REVEAL_STEPS.map(({ mode, label }) => (
+          <button
+            key={mode}
+            aria-pressed={reveal === mode}
+            onClick={() => onReveal(mode)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {reveal === "sets" && triples.length > 1 && (
         <div className="hud-chips" role="group" aria-label="Found sets">
           {triples.map((_, index) => (
             <button

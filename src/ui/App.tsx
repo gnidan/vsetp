@@ -11,6 +11,7 @@ import { announcementFor } from "./announce";
 import { AnalysisView } from "./AnalysisView";
 import { CaptureView } from "./CaptureView";
 import { Hud } from "./Hud";
+import { PresenceBorder } from "./PresenceBorder";
 import { SrResults } from "./SrResults";
 
 export function App() {
@@ -92,7 +93,7 @@ export function App() {
     analyzeCapture(client, capture);
   }
 
-  const { engine, screen } = state;
+  const { engine, screen, reveal } = state;
 
   return (
     <main className="app">
@@ -137,18 +138,25 @@ export function App() {
             )}
             {screen.phase === "results" && (
               <>
+                {/* spoiler parity: below the "sets" reveal, the
+                    overlay never receives set data at all */}
                 <AnalysisView
                   capture={screen.capture}
                   analysis={screen.analysis}
-                  triples={screen.triples}
-                  selected={screen.selected}
+                  triples={reveal === "sets" ? screen.triples : []}
+                  selected={reveal === "sets" ? screen.selected : -1}
                   busyLabel={null}
                 />
+                {reveal === "presence" && (
+                  <PresenceBorder present={screen.triples.length > 0} />
+                )}
                 <Hud
                   analysis={screen.analysis}
                   triples={screen.triples}
                   selected={screen.selected}
+                  reveal={reveal}
                   onSelect={(index) => dispatch({ type: "select-set", index })}
+                  onReveal={(mode) => dispatch({ type: "set-reveal", mode })}
                   onRetake={() => dispatch({ type: "retake" })}
                   onReanalyze={() => {
                     const client = clientRef.current;
@@ -162,6 +170,7 @@ export function App() {
                   analysis={screen.analysis}
                   triples={screen.triples}
                   selected={screen.selected}
+                  revealSets={reveal === "sets"}
                 />
               </>
             )}

@@ -3,6 +3,7 @@ import type { SetTriple } from "../set";
 import { CARD_RASTER } from "../vision/adapter";
 import { ghostFaceDataUrl } from "./card-face";
 import { rectToQuad, toMatrix3d } from "./homography";
+import { SetLines } from "./SetLines";
 
 const UNCERTAIN_BELOW = 0.5;
 
@@ -18,6 +19,8 @@ function outlinePoints(quad: Quad): string {
 // Rendered inside a wrapper that establishes frame-pixel coordinates
 // (AnalysisView scales it to the displayed image box). aria-hidden:
 // the ResultsPanel carries the accessible representation.
+// Spoiler parity: below the "sets" reveal mode, App passes triples=[]
+// so no member emphasis or connection lines can render here.
 export function Overlay({
   analysis,
   triples,
@@ -64,6 +67,9 @@ export function Overlay({
           />
         ))}
       </svg>
+      {triples.length > 0 && (
+        <SetLines analysis={analysis} triples={triples} selected={selected} />
+      )}
     </div>
   );
 }

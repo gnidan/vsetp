@@ -69,6 +69,7 @@ describe("announcementFor", () => {
     const state: AppState = {
       engine: { status: "ready" },
       screen: { phase: "idle", notice: "Some cards are cut off." },
+      reveal: "cards",
     };
     expect(announcementFor(state)).toBe("Some cards are cut off.");
   });
@@ -77,6 +78,7 @@ describe("announcementFor", () => {
     const state: AppState = {
       engine: { status: "ready" },
       screen: { phase: "idle", notice: null },
+      reveal: "cards",
     };
     expect(announcementFor(state)).toBe("");
   });
@@ -91,6 +93,7 @@ describe("announcementFor", () => {
     const state: AppState = {
       engine: { status: "ready" },
       screen: { phase: "analyzing", capture: captureOf(1) },
+      reveal: "cards",
     };
     expect(announcementFor(state)).toBe("Analyzing…");
   });
@@ -176,10 +179,7 @@ describe("announcementFor", () => {
   });
 
   test("cards mode still appends the edge notice", () => {
-    const analysis = analysisOf(7, [
-      "1-red-oval-solid",
-      "2-red-oval-solid",
-    ]);
+    const analysis = analysisOf(7, ["1-red-oval-solid", "2-red-oval-solid"]);
     analysis.cards[0].quad = [
       { x: 0, y: 0 },
       { x: 40, y: 0 },
