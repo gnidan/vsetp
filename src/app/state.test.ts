@@ -118,4 +118,56 @@ describe("reduce", () => {
     expect(state.engine.status).toBe("ready");
     expect(state.screen.phase).toBe("analyzing");
   });
+
+  test("reveal defaults to cards", () => {
+    expect(initialState().reveal).toBe("cards");
+  });
+
+  test("set-reveal switches the reveal mode", () => {
+    const state = reduce(initialState(), {
+      type: "set-reveal",
+      mode: "presence",
+    });
+    expect(state.reveal).toBe("presence");
+  });
+
+  test("reveal survives retake", () => {
+    let state = reduce(initialState(), { type: "set-reveal", mode: "sets" });
+    state = reduce(state, { type: "captured", capture: captureOf(6) });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(6, SET_KEYS),
+    });
+    state = reduce(state, { type: "retake" });
+    expect(state.screen.phase).toBe("idle");
+    expect(state.reveal).toBe("sets");
+  });
+
+  test("reveal survives reanalyze", () => {
+    let state = reduce(initialState(), {
+      type: "set-reveal",
+      mode: "presence",
+    });
+    state = reduce(state, { type: "captured", capture: captureOf(7) });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(7, SET_KEYS),
+    });
+    state = reduce(state, { type: "reanalyze" });
+    expect(state.screen.phase).toBe("analyzing");
+    expect(state.reveal).toBe("presence");
+  });
+
+  test("set-reveal does not disturb the screen", () => {
+    let state = reduce(initialState(), {
+      type: "captured",
+      capture: captureOf(8),
+    });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(8, SET_KEYS),
+    });
+    state = reduce(state, { type: "set-reveal", mode: "sets" });
+    expect(state.screen.phase).toBe("results");
+  });
 });

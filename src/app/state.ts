@@ -22,9 +22,14 @@ export type Screen =
       selected: number;
     };
 
+// Graduated spoiler ladder: what the results screen may disclose.
+// Session-sticky — never reset by screen transitions.
+export type RevealMode = "cards" | "presence" | "sets";
+
 export interface AppState {
   engine: EngineState;
   screen: Screen;
+  reveal: RevealMode;
 }
 
 export type AppEvent =
@@ -39,12 +44,14 @@ export type AppEvent =
   | { type: "cancel" }
   | { type: "retake" }
   | { type: "reanalyze" }
-  | { type: "select-set"; index: number };
+  | { type: "select-set"; index: number }
+  | { type: "set-reveal"; mode: RevealMode };
 
 export function initialState(): AppState {
   return {
     engine: { status: "cold" },
     screen: { phase: "idle", notice: null },
+    reveal: "cards",
   };
 }
 
@@ -113,5 +120,6 @@ export function reduce(state: AppState, event: AppEvent): AppState {
   return {
     engine: reduceEngine(state.engine, event),
     screen: reduceScreen(state.screen, event),
+    reveal: event.type === "set-reveal" ? event.mode : state.reveal,
   };
 }
