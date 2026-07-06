@@ -1,5 +1,13 @@
 # Fixture provenance
 
+- `pic421151.webp` — BoardGameGeek user-uploaded image (BGG image id
+  421151), added 2026-07-05. 900x900, VINTAGE first-edition deck,
+  overhead flat shot, cream cards on a LIGHT TAN table with a black
+  photo border — the pure light-on-light detection worst case (the
+  black frame likely defeats Otsu's global split too). 20 face-up
+  cards, hand-labeled. Detected ZERO cards at time of adding — this
+  fixture drives the light-table detection fix.
+
 (`pic4609830.webp` moved to `../aspirational/`: beyond v1's detection
 envelope — see that directory's README for provenance and
 measurements.)

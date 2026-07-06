@@ -1,0 +1,24 @@
+{
+  "cards": [
+    { "key": "2-green-oval-striped", "near": { "x": 170, "y": 140 } },
+    { "key": "2-purple-oval-open", "near": { "x": 315, "y": 140 } },
+    { "key": "1-purple-diamond-open", "near": { "x": 455, "y": 130 } },
+    { "key": "2-red-diamond-solid", "near": { "x": 595, "y": 135 } },
+    { "key": "1-red-oval-open", "near": { "x": 735, "y": 130 } },
+    { "key": "3-red-diamond-striped", "near": { "x": 165, "y": 330 } },
+    { "key": "1-purple-diamond-solid", "near": { "x": 310, "y": 330 } },
+    { "key": "2-red-squiggle-striped", "near": { "x": 450, "y": 330 } },
+    { "key": "1-red-diamond-striped", "near": { "x": 590, "y": 330 } },
+    { "key": "2-purple-oval-solid", "near": { "x": 735, "y": 330 } },
+    { "key": "3-red-oval-open", "near": { "x": 165, "y": 530 } },
+    { "key": "1-red-oval-solid", "near": { "x": 305, "y": 530 } },
+    { "key": "2-green-diamond-striped", "near": { "x": 450, "y": 530 } },
+    { "key": "3-red-oval-solid", "near": { "x": 595, "y": 530 } },
+    { "key": "1-purple-oval-striped", "near": { "x": 735, "y": 530 } },
+    { "key": "3-purple-diamond-solid", "near": { "x": 165, "y": 755 } },
+    { "key": "3-purple-oval-striped", "near": { "x": 310, "y": 755 } },
+    { "key": "2-purple-squiggle-striped", "near": { "x": 450, "y": 755 } },
+    { "key": "2-red-diamond-open", "near": { "x": 590, "y": 755 } },
+    { "key": "3-purple-diamond-open", "near": { "x": 735, "y": 755 } }
+  ]
+}
