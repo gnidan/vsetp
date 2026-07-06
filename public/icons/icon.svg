@@ -1,8 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#12233a"/>
-  <path d="M48 256 C148 112 364 112 464 256 C364 400 148 400 48 256 Z"
-    fill="#fdfdf8" stroke="#00e5ff" stroke-width="20"/>
-  <circle cx="256" cy="256" r="120" fill="#6a2c91"/>
-  <rect x="211" y="196" width="90" height="120" rx="12" fill="#fdfdf8"/>
-  <polygon points="256,222 284,256 256,290 228,256" fill="#6a2c91"/>
+  <g transform="translate(256 280)">
+    <rect x="-90" y="-130" width="180" height="260" rx="24"
+      fill="#7c5db8" transform="rotate(-14)"/>
+    <rect x="-90" y="-130" width="180" height="260" rx="24"
+      fill="#a58ad6" transform="rotate(0)"/>
+    <rect x="-90" y="-130" width="180" height="260" rx="24"
+      fill="#d6c9ef" transform="rotate(14)"/>
+  </g>
 </svg>
