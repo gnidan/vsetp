@@ -11,12 +11,14 @@ import {
   projectTracks,
   REVERIFY_INTERVAL_FRAMES,
   TRACK_RETIRE_FRAMES,
+  UNCERTAIN_RETRY_FRAMES,
 } from "./tracker";
 
 const FRAME = { width: 768, height: 576 };
 
 const CARD_A = cardFromKey("1-red-oval-solid" as CardKey);
 const CARD_B = cardFromKey("1-red-diamond-solid" as CardKey);
+const CARD_C = cardFromKey("1-green-oval-solid" as CardKey);
 const conf = { count: 1, color: 1, shape: 1, fill: 1 };
 
 function classify(table: any, id: any, card: any, nowMs = 0) {
@@ -161,6 +163,39 @@ describe("consensus and locking", () => {
     expect(cardKey(table.tracks[0].reading!)).toBe("1-red-oval-solid");
   });
 
+  it("vote tie: current runKey wins when it is among the leaders", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    // A:3, B:3, C:1 — no run reaches 3; ends on A, so runKey=A
+    const seq = [CARD_A, CARD_B, CARD_A, CARD_B, CARD_C, CARD_B, CARD_A];
+    expect(seq).toHaveLength(MAX_CONSENSUS_ATTEMPTS);
+    for (const card of seq) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, card);
+    }
+    expect(table.tracks[0].state).toBe("uncertain-locked");
+    // leaders {A, B}; runKey A is among them -> A (NOT the
+    // lexicographically smaller "1-red-diamond-solid")
+    expect(cardKey(table.tracks[0].reading!)).toBe("1-red-oval-solid");
+  });
+
+  it("vote tie: lexicographically smallest leader when runKey lost", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    // A:3, B:3, C:1 — ends on C, so runKey=C is NOT a leader
+    const seq = [CARD_A, CARD_B, CARD_A, CARD_B, CARD_A, CARD_B, CARD_C];
+    expect(seq).toHaveLength(MAX_CONSENSUS_ATTEMPTS);
+    for (const card of seq) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, card);
+    }
+    expect(table.tracks[0].state).toBe("uncertain-locked");
+    // leaders {"1-red-oval-solid", "1-red-diamond-solid"}: smallest
+    expect(cardKey(table.tracks[0].reading!)).toBe("1-red-diamond-solid");
+  });
+
   it("a locked track is not re-selected before the re-verify interval", () => {
     const table = createTrackTable();
     step(table, [rect(10, 10)]);
@@ -197,6 +232,28 @@ describe("consensus and locking", () => {
     }
     expect(table.tracks[0].state).toBe("locked");
     expect(cardKey(table.tracks[0].reading!)).toBe("1-red-diamond-solid");
+  });
+});
+
+describe("unreadable-track retry cadence", () => {
+  it("null-only reads back off to the uncertain retry cadence", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    // card-shaped but unreadable: every classification returns null
+    for (let i = 0; i < MAX_CONSENSUS_ATTEMPTS; i++) {
+      const out = step(table, [rect(10, 10)]);
+      expect(out.toClassify.map((s) => s.id)).toContain(id);
+      applyClassifications(table, [{ id, outcome: null }], 0);
+    }
+    // immediately following frames: no longer selected every rotation
+    for (let i = 1; i < UNCERTAIN_RETRY_FRAMES; i++) {
+      const out = step(table, [rect(10, 10)]);
+      expect(out.toClassify).toHaveLength(0);
+    }
+    // after UNCERTAIN_RETRY_FRAMES frames it becomes eligible again
+    const out = step(table, [rect(10, 10)]);
+    expect(out.toClassify.map((s) => s.id)).toContain(id);
   });
 });
 

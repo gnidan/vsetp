@@ -337,11 +337,30 @@ function purgeGrace(table: TrackTable, nowMs: number): void {
   table.grace = table.grace.filter((g) => g.expiresAtMs >= nowMs);
 }
 
+// An unreadable track: every classification came back null (zero
+// recorded votes) and the escape-hatch attempt budget is spent. A
+// face-down deck or box lid stays card-shaped forever; without a
+// backoff it would consume a classify slot every rotation and starve
+// locked-track re-verification.
+function isUnreadable(track: TrackRecord): boolean {
+  return (
+    track.consensus.attempts >= MAX_CONSENSUS_ATTEMPTS &&
+    Object.keys(track.consensus.votes).length === 0
+  );
+}
+
 // Step 8: select tracks for live classification, budget-limited.
 function selectClassify(table: TrackTable): { id: TrackId; quad: Quad }[] {
   const eligible = table.tracks.filter((t) => {
     if (t.missing > 0) return false;
-    if (t.state === "tentative" || t.state === "reading") return true;
+    if (t.state === "tentative" || t.state === "reading") {
+      if (isUnreadable(t)) {
+        // same slow cadence uncertain-locked uses; state stays as-is
+        // (renders as a plain outline — truthful)
+        return table.ordinal - t.lastClassified >= UNCERTAIN_RETRY_FRAMES;
+      }
+      return true;
+    }
     if (t.state === "uncertain-locked") {
       return table.ordinal - t.lastClassified >= UNCERTAIN_RETRY_FRAMES;
     }
