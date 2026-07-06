@@ -15,6 +15,12 @@ const MAX_CARD_AREA_FRACTION = 0.25;
 // close overhead) up to 2.24 (pic1014255 shallow oblique). Band is
 // those extremes plus a small margin.
 const CARD_ASPECT_RANGE = { min: 1.05, max: 2.35 };
+// ROI missed-card assist (relaxed detection, see DetectOptions.relaxed):
+// the user has already asserted a card is here, so the aspect band
+// widens and the area floor halves to admit more foreshortened/small
+// candidates. Consensus across frames still guards false positives.
+const RELAXED_ASPECT_RANGE = { min: 0.9, max: 2.6 };
+const RELAXED_AREA_FRACTION_SCALE = 0.5;
 // glancing-angle tableaus (pic4609830) compress cards much further:
 // measured fully-visible cards sit at 2.4-3.1 and the exposed strips
 // of overlapped cards at 3.8-4.9. Only the steep-overlap strategy —
@@ -57,7 +63,11 @@ interface Candidate {
 }
 
 interface ExtractOptions {
-  aspectMax: number;
+  aspectMin: number; // effective global band (relaxed-adjustable)
+  aspectMax: number; // primary-check ceiling: per-strategy (may be steep)
+  globalAspectMax: number; // effective global band max; never the
+  // steep ceiling (see NICKED_RECT_VERTICES)
+  minAreaFraction: number; // effective floor (relaxed-adjustable)
   splitBudget: number;
 }
 
@@ -68,10 +78,10 @@ function evaluateContour(
   cv: Cv,
   contour: Cv,
   imageArea: number,
-  aspectMax: number,
+  options: ExtractOptions,
 ): Evaluation {
   const area = cv.contourArea(contour);
-  if (area < imageArea * MIN_CARD_AREA_FRACTION) return { kind: "reject" };
+  if (area < imageArea * options.minAreaFraction) return { kind: "reject" };
   let approx: Cv = null;
   try {
     approx = new cv.Mat();
@@ -85,7 +95,7 @@ function evaluateContour(
       const long = Math.max(rect.size.width, rect.size.height);
       const short = Math.min(rect.size.width, rect.size.height);
       const aspect = long / Math.max(short, 1);
-      if (aspect >= CARD_ASPECT_RANGE.min && aspect <= aspectMax) {
+      if (aspect >= options.aspectMin && aspect <= options.aspectMax) {
         const points: Point[] = [];
         for (let p = 0; p < 4; p++) {
           points.push({
@@ -109,8 +119,8 @@ function evaluateContour(
       const rectFill = area / Math.max(long * short, 1);
       if (
         rectFill >= NICKED_MIN_RECT_FILL &&
-        aspect >= CARD_ASPECT_RANGE.min &&
-        aspect <= CARD_ASPECT_RANGE.max
+        aspect >= options.aspectMin &&
+        aspect <= options.globalAspectMax
       ) {
         const radians = (rect.angle * Math.PI) / 180;
         const cos = Math.cos(radians);
@@ -130,7 +140,7 @@ function evaluateContour(
       }
     }
     if (
-      area >= imageArea * MIN_CARD_AREA_FRACTION * MIN_CLUSTER_CARDS &&
+      area >= imageArea * options.minAreaFraction * MIN_CLUSTER_CARDS &&
       area <= imageArea * MAX_CLUSTER_AREA_FRACTION
     ) {
       return { kind: "cluster" };
@@ -196,12 +206,7 @@ function candidatesFromBinary(
     for (let i = 0; i < contours.size(); i++) {
       const contour = contours.get(i);
       try {
-        const evaluation = evaluateContour(
-          cv,
-          contour,
-          imageArea,
-          options.aspectMax,
-        );
+        const evaluation = evaluateContour(cv, contour, imageArea, options);
         if (evaluation.kind === "card") {
           found.push({ points: evaluation.points, erosion });
         } else if (evaluation.kind === "cluster" && options.splitBudget > 0) {
@@ -291,7 +296,11 @@ const EDGE_LATTICE_SEAL = 3;
 // (calibration below against synthetic truth quads)
 const EDGE_INTERIOR_LINE_HALF_WIDTH = 1;
 
-function binaryFromEdgeInteriors(cv: Cv, gray: Cv): Cv {
+function binaryFromEdgeInteriors(
+  cv: Cv,
+  gray: Cv,
+  minAreaFraction: number,
+): Cv {
   let edges: Cv = null;
   let kernel: Cv = null;
   let contours: Cv = null;
@@ -330,7 +339,7 @@ function binaryFromEdgeInteriors(cv: Cv, gray: Cv): Cv {
       const contour = contours.get(i);
       const area = cv.contourArea(contour);
       contour.delete();
-      if (area < imageArea * MIN_CARD_AREA_FRACTION) continue;
+      if (area < imageArea * minAreaFraction) continue;
       if (area > imageArea * MAX_CARD_AREA_FRACTION) continue;
       cv.drawContours(rebuilt, contours, i, new cv.Scalar(255), -1);
     }
@@ -353,6 +362,18 @@ export function detectCards(
 ): Quad[] {
   const maxDimension = options?.maxDimension ?? DETECTION_MAX_DIMENSION;
   const scale = Math.min(1, maxDimension / Math.max(frame.width, frame.height));
+  // ROI missed-card assist: widen the aspect band and halve the area
+  // floor once here, then thread the same derived limits to every
+  // gate site below (see DetectOptions.relaxed and RELAXED_*).
+  const aspectMin = options?.relaxed
+    ? RELAXED_ASPECT_RANGE.min
+    : CARD_ASPECT_RANGE.min;
+  const aspectMax = options?.relaxed
+    ? RELAXED_ASPECT_RANGE.max
+    : CARD_ASPECT_RANGE.max;
+  const minAreaFraction = options?.relaxed
+    ? MIN_CARD_AREA_FRACTION * RELAXED_AREA_FRACTION_SCALE
+    : MIN_CARD_AREA_FRACTION;
   let src: Cv = null;
   let working: Cv = null;
   let kernel: Cv = null;
@@ -441,13 +462,21 @@ export function detectCards(
     const strategies: Array<() => Candidate[]> = [
       // primary: global Otsu separates white cards from the table
       fromBinary(otsuBinary, SPLIT_EROSION, {
-        aspectMax: CARD_ASPECT_RANGE.max,
+        aspectMin,
+        aspectMax,
+        globalAspectMax: aspectMax,
+        minAreaFraction,
         splitBudget: 0,
       }),
       // steep-overlap rescue; wider aspect ceiling because glancing
-      // angles compress cards past the ordinary band (see constant)
+      // angles compress cards past the ordinary band (see constant).
+      // globalAspectMax stays the ordinary (relaxed-adjustable) band:
+      // the nicked-rect rescue never admits the steep ceiling.
       fromBinary(edgeCutBinary, SPLIT_EROSION, {
+        aspectMin,
         aspectMax: STEEP_ASPECT_MAX,
+        globalAspectMax: aspectMax,
+        minAreaFraction,
         splitBudget: MAX_SPLIT_EROSION,
       }),
       // light-background fallback (see binaryFromEdgeInteriors); the
@@ -455,10 +484,13 @@ export function detectCards(
       // radius plus the Canny line's half-width, compensated like an
       // erosion
       fromBinary(
-        () => binaryFromEdgeInteriors(cv, working),
+        () => binaryFromEdgeInteriors(cv, working, minAreaFraction),
         EDGE_LATTICE_SEAL + EDGE_INTERIOR_LINE_HALF_WIDTH,
         {
-          aspectMax: CARD_ASPECT_RANGE.max,
+          aspectMin,
+          aspectMax,
+          globalAspectMax: aspectMax,
+          minAreaFraction,
           splitBudget: 0,
         },
       ),

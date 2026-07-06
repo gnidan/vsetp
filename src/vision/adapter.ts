@@ -14,6 +14,7 @@ export const CARD_RASTER = { width: 600, height: 384 } as const;
 
 export interface DetectOptions {
   maxDimension?: number; // default DETECTION_MAX_DIMENSION
+  relaxed?: boolean; // ROI assist: widen gates (default false)
 }
 
 export interface SymbolRegion {
