@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
 import { initialState, reduce } from "../app/state";
 import type { WorkerClient } from "../app/worker-client";
@@ -14,7 +14,30 @@ import { Hud } from "./Hud";
 import { PresenceBorder } from "./PresenceBorder";
 import { SrResults } from "./SrResults";
 
+// Copy by error class name, not raw message: an engine-init failure
+// (bad network, bad WASM fetch) and a mid-session worker death read
+// very differently to a user, even though both land in the same
+// EngineState["failed"] shape.
+function engineFailureMessage(error: Error): string {
+  switch (error.name) {
+    case "EngineInitError":
+      return "The card reader couldn't load. Check your connection and retry.";
+    case "WorkerDiedError":
+    case "AnalyzeTimeoutError":
+      return "The card reader stopped responding.";
+    default:
+      return error.message;
+  }
+}
+
 export function App() {
+  const [generation, setGeneration] = useState(0);
+  return (
+    <Session key={generation} onRetry={() => setGeneration((n) => n + 1)} />
+  );
+}
+
+function Session({ onRetry }: { onRetry(): void }) {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
   const clientRef = useRef<WorkerClient | null>(null);
   const lastCapture = useRef<Capture | null>(null);
@@ -29,7 +52,10 @@ export function App() {
         // a disposed client's rejection is mount lifecycle
         // (StrictMode replay), not an engine failure
         if (error instanceof DisposedError) return;
-        dispatch({ type: "engine-failed", message: error.message });
+        dispatch({
+          type: "engine-failed",
+          message: engineFailureMessage(error),
+        });
       });
 
   useEffect(() => {
@@ -72,7 +98,8 @@ export function App() {
               },
         ),
       )
-      .catch((error: Error) =>
+      .catch((error: Error) => {
+        if (error instanceof DisposedError) return; // mount lifecycle
         dispatch(
           error instanceof AnalyzeError
             ? {
@@ -80,14 +107,26 @@ export function App() {
                 stage: error.stage,
                 message: error.message,
               }
-            : { type: "engine-failed", message: error.message },
-        ),
-      );
+            : {
+                type: "engine-failed",
+                message: engineFailureMessage(error),
+              },
+        );
+      });
   }
 
   function onCapture(capture: Capture) {
     const client = clientRef.current;
     if (!client) return;
+    // "captured" must dispatch before startEngine/analyze attach
+    // their .then callbacks: reducer transitions run in dispatch
+    // order, and both promises can already be settled (engine
+    // warmed up earlier, analyze resolves fast) when this runs. If
+    // startEngine's continuation attached first, a same-tick
+    // engine-ready could interleave ahead of "captured" and the
+    // analyzing screen would never have existed for analysis-ok to
+    // land on. Attaching in this order guarantees engine-ready is
+    // always observed before analysis-ok, whatever settles first.
     dispatch({ type: "captured", capture });
     void startEngine(client); // no-op unless init was saveData-deferred
     analyzeCapture(client, capture);
@@ -101,10 +140,12 @@ export function App() {
         {announcementFor(state)}
       </div>
       {engine.status === "failed" ? (
-        <p className="notice">
-          The card reader couldn't start: {engine.message}. Check your
-          connection and reload to retry.
-        </p>
+        <div className="capture-center">
+          <p className="notice">{engine.message}</p>
+          <button className="primary" onClick={onRetry}>
+            Retry
+          </button>
+        </div>
       ) : (
         <>
           {engine.status === "loading" && (

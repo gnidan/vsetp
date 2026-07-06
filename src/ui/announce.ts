@@ -1,6 +1,10 @@
 import type { AppState } from "../app/state";
 import { edgeNotice } from "../app/guidance";
 
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
 function engineText(engine: AppState["engine"]): string | null {
   if (engine.status === "loading") {
     const { loaded, total } = engine;
@@ -36,14 +40,14 @@ export function announcementFor(state: AppState): string {
         cards === 0
           ? "No cards detected. Try filling the frame with the spread."
           : state.reveal === "cards"
-            ? `${cards} cards read.`
+            ? `${plural(cards, "card")} read.`
             : state.reveal === "presence"
-              ? `${cards} cards read. ` +
+              ? `${plural(cards, "card")} read. ` +
                 (sets > 0 ? "A set is present." : "No set here.")
               : sets === 0
-                ? `No set found among the ${cards} cards.`
-                : `${sets} set${sets > 1 ? "s" : ""} found. ` +
-                  `${cards} cards read.`;
+                ? `No set found among the ${plural(cards, "card")}.`
+                : `${plural(sets, "set")} found. ` +
+                  `${plural(cards, "card")} read.`;
       const edge = edgeNotice(screen.analysis);
       return edge ? `${summary} ${edge}` : summary;
     }

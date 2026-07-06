@@ -54,6 +54,20 @@ describe("rectToQuad", () => {
     // toward the narrower edge, not the wider one
     expect(center.y).toBeLessThan(200);
   });
+
+  test("degenerate quads yield finite (affine) homographies", () => {
+    // p1, p2, p3 collinear: the projective branch's denominator is
+    // zero and no true homography exists; the code must fall back to
+    // an affine mapping instead of emitting NaN/Infinity.
+    const collinear: Quad = [
+      { x: 0, y: 100 },
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 200, y: 0 },
+    ];
+    const h = rectToQuad(600, 384, collinear);
+    for (const value of h) expect(Number.isFinite(value)).toBe(true);
+  });
 });
 
 describe("toMatrix3d", () => {

@@ -13,7 +13,7 @@ function summaryFor(reveal: RevealMode, cards: number, sets: number): string {
   if (cards === 0) return "No cards found";
   switch (reveal) {
     case "cards":
-      return `${cards} cards read`;
+      return `${cards} card${cards === 1 ? "" : "s"} read`;
     case "presence":
       return sets > 0 ? "A set is present" : "No set here";
     case "sets":

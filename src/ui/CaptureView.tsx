@@ -16,6 +16,8 @@ export function CaptureView({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
+  const enableGenRef = useRef(0);
   const [camera, send] = useReducer(cameraReduce, "unprimed");
   const [dismissed, setDismissed] = useState(false);
   const live = camera === "live";
@@ -26,12 +28,16 @@ export function CaptureView({
   useEffect(() => setDismissed(false), [notice]);
 
   useEffect(
-    () => () => streamRef.current?.getTracks().forEach((t) => t.stop()),
+    () => () => {
+      mountedRef.current = false;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    },
     [],
   );
 
   async function enableCamera() {
     send("enable");
+    const generation = ++enableGenRef.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -40,7 +46,25 @@ export function CaptureView({
           height: { ideal: 1080 },
         },
       });
+      // getUserMedia was pending across an unmount or a newer
+      // enableCamera call: this grant is stale, so release it
+      // immediately rather than adopting it into the ref.
+      if (!mountedRef.current || generation !== enableGenRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
+      // mid-session OS/browser revocation (e.g. the user pulls
+      // camera permission, or another app claims the device): return
+      // to the "Enable camera" path instead of a frozen live view.
+      const [track] = stream.getVideoTracks();
+      if (track) {
+        track.onended = () => {
+          if (streamRef.current !== stream) return; // superseded already
+          streamRef.current = null;
+          send("stopped");
+        };
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();

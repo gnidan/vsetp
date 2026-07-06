@@ -98,6 +98,36 @@ describe("announcementFor", () => {
     expect(announcementFor(state)).toBe("Analyzing…");
   });
 
+  // Precedence contract: onCapture dispatches "captured" before it
+  // calls startEngine/analyze, so an "engine-ready" dispatch's
+  // promise always attaches before "analysis-ok"'s — engine state
+  // can never regress to loading once a results screen exists.
+  // These two tests pin the contract from both directions.
+  test("precedence: a ready engine's results screen wins", () => {
+    const keys = Array.from({ length: 3 }, () => "1-red-oval-solid");
+    const state: AppState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "results",
+        capture: captureOf(10),
+        analysis: analysisOf(10, keys),
+        triples: [],
+        selected: -1,
+      },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe("3 cards read.");
+  });
+
+  test("precedence: a loading engine wins over an analyzing screen", () => {
+    const state: AppState = {
+      engine: { status: "loading", loaded: 1, total: 2 },
+      screen: { phase: "analyzing", capture: captureOf(11) },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe("Loading card reader… 50%");
+  });
+
   test("sets mode results with sets found reports sets and cards", () => {
     const keys = Array.from({ length: 12 }, () => "1-red-oval-solid");
     const state: AppState = {
@@ -144,6 +174,21 @@ describe("announcementFor", () => {
       reveal: "cards",
     };
     expect(announcementFor(state)).toBe("12 cards read.");
+  });
+
+  test("cards mode singularizes a single card", () => {
+    const state: AppState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "results",
+        capture: captureOf(9),
+        analysis: analysisOf(9, ["1-red-oval-solid"]),
+        triples: [],
+        selected: -1,
+      },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe("1 card read.");
   });
 
   test("presence mode results with a set reports presence", () => {

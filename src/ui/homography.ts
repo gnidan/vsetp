@@ -38,6 +38,21 @@ function unitSquareToQuad(quad: Quad): Homography {
   const dx2 = p3.x - p2.x;
   const dy2 = p3.y - p2.y;
   const denominator = dx1 * dy2 - dy1 * dx2;
+  if (Math.abs(denominator) < 1e-9) {
+    // p1, p2, p3 collinear: no valid homography exists; fall back to
+    // the affine mapping rather than emitting NaN into matrix3d
+    return [
+      p1.x - p0.x,
+      p3.x - p0.x,
+      p0.x,
+      p1.y - p0.y,
+      p3.y - p0.y,
+      p0.y,
+      0,
+      0,
+      1,
+    ];
+  }
   const g = (sx * dy2 - sy * dx2) / denominator;
   const h = (dx1 * sy - dy1 * sx) / denominator;
   return [
