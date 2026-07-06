@@ -9,9 +9,9 @@ import { writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import sharp from "sharp";
 import "../test/setup"; // installs Node's ImageData shim (rectifyCard needs it)
-import { renderCardRaster } from "../test/synthetic/render";
-import type { DetectedCard, Point, Quad } from "../src/model";
+import type { Card, DetectedCard, Point, Quad } from "../src/model";
 import { cardKey } from "../src/model";
+import { ghostFaceSvg } from "../src/ui/card-face";
 import { CARD_RASTER } from "../src/vision/adapter";
 import type { Cv } from "../src/vision/opencv/cv";
 import { createCardVision } from "../src/vision/opencv";
@@ -63,16 +63,35 @@ function svgOverlay(cards: DetectedCard[], width: number, height: number) {
 }
 
 // Ghost opacity is applied here, before warping: each raster's alpha
-// channel is scaled to 65% up front, so warpPerspective's INTER_LINEAR
+// channel is scaled to 90% up front, so warpPerspective's INTER_LINEAR
 // resampling blends the reduced alpha smoothly at the warped card
 // edges rather than uniformly dimming a hard-edged layer afterward.
-const GHOST_OPACITY = 0.65;
+const GHOST_OPACITY = 0.9;
 
 function applyGhostAlpha(raster: ImageData): void {
   const { data } = raster;
   for (let i = 3; i < data.length; i += 4) {
     data[i] = Math.round(data[i] * GHOST_OPACITY);
   }
+}
+
+// Rasterizes the ghost SVG variant (transparent background, nested
+// scaled-down symbols, dotted amber border) at CARD_RASTER size.
+async function rasterizeGhost(card: Card): Promise<ImageData> {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" ` +
+    `width="${CARD_RASTER.width}" height="${CARD_RASTER.height}">` +
+    ghostFaceSvg(card) +
+    `</svg>`;
+  const { data, info } = await sharp(Buffer.from(svg))
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return new ImageData(
+    new Uint8ClampedArray(data.buffer, data.byteOffset, data.length),
+    info.width,
+    info.height,
+  );
 }
 
 // Warps one idealized card face onto `layer` at `quad`. `layer` may
@@ -146,7 +165,7 @@ async function buildGhostLayer(
   try {
     layer = cv.Mat.zeros(height, width, cv.CV_8UC4);
     for (const c of cards) {
-      const raster = await renderCardRaster(c.card);
+      const raster = await rasterizeGhost(c.card);
       applyGhostAlpha(raster);
       warpGhostOnto(cv, layer, raster, c.quad, width, height);
     }

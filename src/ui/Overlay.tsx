@@ -1,7 +1,7 @@
 import type { FrameAnalysis, Quad } from "../model";
 import type { SetTriple } from "../set";
 import { CARD_RASTER } from "../vision/adapter";
-import { cardFaceDataUrl } from "./card-face";
+import { ghostFaceDataUrl } from "./card-face";
 import { rectToQuad, toMatrix3d } from "./homography";
 
 const UNCERTAIN_BELOW = 0.5;
@@ -35,7 +35,7 @@ export function Overlay({
         <img
           key={card.id}
           className="ghost"
-          src={cardFaceDataUrl(card.card)}
+          src={ghostFaceDataUrl(card.card)}
           alt=""
           width={CARD_RASTER.width}
           height={CARD_RASTER.height}

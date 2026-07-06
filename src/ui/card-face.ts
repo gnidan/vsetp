@@ -122,3 +122,53 @@ export function cardFaceDataUrl(card: Card): string {
     `</svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
+
+// Ghost variant: no white face rect (the real card shows through), the
+// symbols nested inside the real ink by shrinking about their own
+// centers, plus a dotted amber border that stands in for the "this is
+// a ghost" cue the removed white wash used to carry.
+export const GHOST_SYMBOL_SCALE = 0.8;
+export const GHOST_BORDER = "#ffb300";
+const GHOST_BORDER_INSET = 6;
+
+// SVG for one ghost card face at CARD_RASTER size, origin at (0, 0),
+// no background rect (fully transparent). Reuses cardFaceSvg's row
+// layout math so nested symbols line up with the real printed ones.
+export function ghostFaceSvg(card: Card): string {
+  const patternId = `ghost-stripe-${card.color}`;
+  const gap = SYMBOL_GAP;
+  const { width: w, height: h } = SYMBOL;
+  const rowWidth = card.count * w + (card.count - 1) * gap;
+  const symbols: string[] = [];
+  for (let i = 0; i < card.count; i++) {
+    const x = (CARD_RASTER.width - rowWidth) / 2 + i * (w + gap);
+    const y = (CARD_RASTER.height - h) / 2;
+    const transform =
+      `translate(${x} ${y}) translate(${w / 2} ${h / 2}) ` +
+      `scale(${GHOST_SYMBOL_SCALE}) translate(${-w / 2} ${-h / 2})`;
+    symbols.push(
+      `<path transform="${transform}" ` +
+        `d="${symbolShape(card.shape)}" ` +
+        `${fillAttrs(card.fill, card.color, patternId)}/>`,
+    );
+  }
+  const bx = GHOST_BORDER_INSET;
+  const bw = CARD_RASTER.width - 2 * GHOST_BORDER_INSET;
+  const bh = CARD_RASTER.height - 2 * GHOST_BORDER_INSET;
+  return (
+    `<defs>${stripePattern(patternId, card.color)}</defs>` +
+    symbols.join("") +
+    `<rect x="${bx}" y="${bx}" width="${bw}" height="${bh}" rx="18" ` +
+    `fill="none" stroke="${GHOST_BORDER}" stroke-width="10" ` +
+    `stroke-dasharray="2 14" stroke-linecap="round"/>`
+  );
+}
+
+export function ghostFaceDataUrl(card: Card): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" ` +
+    `width="${CARD_RASTER.width}" height="${CARD_RASTER.height}">` +
+    ghostFaceSvg(card) +
+    `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
