@@ -27,8 +27,19 @@ export interface LiveDriverDeps {
   // navigator.wakeLock?.request("screen") when omitted, feature-
   // detected so the driver still runs where it's unavailable.
   requestWakeLock?(): Promise<WakeLockSentinelLike | null | undefined>;
+  // Independent repeating timer that polls for a stall, injectable
+  // for tests. Defaults to a plain `setInterval` wrapper. This must
+  // be a *separate* timer from `schedule`: `schedule` can itself
+  // freeze (a dead rVFC never fires again), and a frozen schedule
+  // must still be able to report its own stall.
+  repeat?(cb: () => void, ms: number): () => void;
 }
 
+// A driver that has reported a stall via `onStall()` stops pacing but
+// stays `started` — it does not attempt to recover on its own. To
+// resume, the caller must `stop()` then `start()` for a fresh
+// session (a fresh ladder, a fresh stall clock, and a fresh
+// client-side live session).
 export interface LiveDriver {
   start(): Promise<void>; // startLive + begin pacing + wake lock
   stop(): Promise<void>; // stopLive + cancel pacing + release lock
@@ -36,6 +47,11 @@ export interface LiveDriver {
 
 function hasDocument(): boolean {
   return typeof document !== "undefined";
+}
+
+function defaultRepeat(cb: () => void, ms: number): () => void {
+  const handle = setInterval(cb, ms);
+  return () => clearInterval(handle);
 }
 
 async function defaultRequestWakeLock(): Promise<WakeLockSentinelLike | null> {
@@ -51,10 +67,12 @@ async function defaultRequestWakeLock(): Promise<WakeLockSentinelLike | null> {
 
 export function createLiveDriver(deps: LiveDriverDeps): LiveDriver {
   const requestWakeLockImpl = deps.requestWakeLock ?? defaultRequestWakeLock;
+  const repeatImpl = deps.repeat ?? defaultRepeat;
 
   let started = false;
   let running = false;
   let cancelTick: (() => void) | null = null;
+  let cancelStallTimer: (() => void) | null = null;
   let ladder: LadderState = createLadder(deps.now());
   let currentMaxDimension: number = LADDER_RUNGS[ladder.rung];
   let degraded = false;
@@ -94,6 +112,29 @@ export function createLiveDriver(deps: LiveDriverDeps): LiveDriver {
     );
   }
 
+  function stopStallTimer(): void {
+    cancelStallTimer?.();
+    cancelStallTimer = null;
+  }
+
+  function startStallTimer(): void {
+    if (cancelStallTimer) return;
+    cancelStallTimer = repeatImpl(checkStall, STALL_MS);
+  }
+
+  // Runs on its own `repeat` timer, independent of `tick`/`schedule`,
+  // so a frozen schedule (e.g. a dead rVFC) can still be caught.
+  function checkStall(): void {
+    if (!running) return;
+    if (stallElapsed()) {
+      running = false;
+      cancelTick?.();
+      cancelTick = null;
+      stopStallTimer();
+      deps.onStall();
+    }
+  }
+
   function tick(): void {
     if (!running) return;
     if (deps.video.readyState >= READY_STATE_HAVE_CURRENT_DATA) {
@@ -101,22 +142,40 @@ export function createLiveDriver(deps: LiveDriverDeps): LiveDriver {
       deps.client.sendLiveFrame(frame, captureMs, {
         maxDimension: currentMaxDimension,
       } satisfies DetectOptions);
+      const firstSend = !sending;
       sending = true;
       if (lastSignalAt === null) lastSignalAt = deps.now();
-    }
-    if (stallElapsed()) {
-      running = false;
-      cancelTick?.();
-      cancelTick = null;
-      deps.onStall();
+      if (firstSend) startStallTimer();
     }
   }
 
   async function requestWakeLock(): Promise<void> {
+    let result: WakeLockSentinelLike | null;
     try {
-      wakeLock = (await requestWakeLockImpl()) ?? null;
+      result = (await requestWakeLockImpl()) ?? null;
     } catch {
-      wakeLock = null;
+      result = null;
+    }
+    if (!started) {
+      // stop() ran while this request was in flight: drop it rather
+      // than stashing a sentinel for a session that no longer exists.
+      try {
+        await result?.release();
+      } catch {
+        // opportunistic release; a failure here is not actionable
+      }
+      return;
+    }
+    const previous = wakeLock;
+    wakeLock = result;
+    if (previous && previous !== result) {
+      // an overlapping request already holds a sentinel; release it
+      // now that this (later-resolving) one is replacing it.
+      try {
+        await previous.release();
+      } catch {
+        // opportunistic release; a failure here is not actionable
+      }
     }
   }
 
@@ -148,7 +207,18 @@ export function createLiveDriver(deps: LiveDriverDeps): LiveDriver {
         document.addEventListener("visibilitychange", onVisibilityChange);
       }
       await requestWakeLock();
-      cancelTick = deps.schedule(tick);
+      try {
+        cancelTick = deps.schedule(tick);
+      } catch (err) {
+        cancelTick = null;
+        running = false;
+        if (hasDocument()) {
+          document.removeEventListener("visibilitychange", onVisibilityChange);
+        }
+        await releaseWakeLock();
+        started = false;
+        throw err;
+      }
     })();
     try {
       await startPromise;
@@ -164,6 +234,7 @@ export function createLiveDriver(deps: LiveDriverDeps): LiveDriver {
       running = false;
       cancelTick?.();
       cancelTick = null;
+      stopStallTimer();
       if (hasDocument()) {
         document.removeEventListener("visibilitychange", onVisibilityChange);
       }
@@ -197,7 +268,7 @@ export function createSchedule(
   video: RVFCVideo,
 ): (cb: () => void) => () => void {
   if (typeof video.requestVideoFrameCallback === "function") {
-    const requestFrame = video.requestVideoFrameCallback;
+    const requestFrame = video.requestVideoFrameCallback.bind(video);
     return (cb: () => void) => {
       let cancelled = false;
       let handle: number | null = null;

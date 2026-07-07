@@ -3,15 +3,20 @@
 // it a monotonic `now` on every live-update and get back the rung to
 // send subsequent frames at.
 //
-// A full window must elapse before the ladder judges anything: a
-// short (3s) window governs downshifts (react fast under thermal
-// pressure), a long (30s) window governs upshifts (only restore
-// resolution once throughput is durably good). The gap between the
-// two rate thresholds (4..6 updates/sec) is a hysteresis dead-band —
-// inside it, neither shift fires and the window just keeps
-// accumulating. The window resets only when a shift actually changes
-// the rung; at either end of the ladder a triggered shift that would
-// go out of bounds just holds (no reset, no rung change).
+// Two independent TUMBLING windows drive judgments: a short (3s)
+// window governs downshifts (react fast under thermal pressure), a
+// long (30s) window governs upshifts (only restore resolution once
+// throughput is durably good). Each window judges once it's full,
+// then resets — whether or not that judgment actually changed the
+// rung — so the rate it measures is always "the last N seconds," not
+// a session-lifetime average. Any downshift also resets the upshift
+// window, since a rung that just dropped shouldn't be a candidate to
+// immediately climb back up on stale upshift-window data. Upshifting
+// only makes sense once rung > 0 (there's nowhere higher than rung 0
+// to go), and at either end of the ladder a triggered shift that
+// would go out of bounds just holds the rung — the window still
+// resets. The gap between the two rate thresholds (4..6 updates/sec)
+// is a hysteresis dead-band — inside it, neither shift fires.
 export const LADDER_RUNGS = [768, 640, 512] as const;
 export const DOWNSHIFT_WINDOW_MS = 3000;
 export const DOWNSHIFT_BELOW_PER_SEC = 4;
@@ -20,46 +25,65 @@ export const UPSHIFT_ABOVE_PER_SEC = 6;
 
 export interface LadderState {
   rung: number; // index into LADDER_RUNGS
-  windowStart: number;
-  updatesInWindow: number;
+  downshiftWindowStart: number;
+  downshiftUpdates: number;
+  upshiftWindowStart: number;
+  upshiftUpdates: number;
 }
 
 export function createLadder(now: number): LadderState {
-  return { rung: 0, windowStart: now, updatesInWindow: 0 };
+  return {
+    rung: 0,
+    downshiftWindowStart: now,
+    downshiftUpdates: 0,
+    upshiftWindowStart: now,
+    upshiftUpdates: 0,
+  };
 }
 
 export function recordUpdate(
   s: LadderState,
   now: number,
 ): { state: LadderState; maxDimension: number; degraded: boolean } {
-  const updatesInWindow = s.updatesInWindow + 1;
-  const elapsedMs = now - s.windowStart;
-  // ratePerSec is only read when a guard below has already confirmed
-  // elapsedMs is at least a full window (> 0), so it can't divide by
-  // zero in a branch that matters.
-  const ratePerSec = (updatesInWindow * 1000) / elapsedMs;
-
-  const canDownshift =
-    elapsedMs >= DOWNSHIFT_WINDOW_MS && ratePerSec < DOWNSHIFT_BELOW_PER_SEC;
-  const canUpshift =
-    elapsedMs >= UPSHIFT_WINDOW_MS && ratePerSec > UPSHIFT_ABOVE_PER_SEC;
-
   let rung = s.rung;
-  let windowStart = s.windowStart;
-  let nextUpdatesInWindow = updatesInWindow;
+  let downshiftWindowStart = s.downshiftWindowStart;
+  let downshiftUpdates = s.downshiftUpdates + 1;
+  let upshiftWindowStart = s.upshiftWindowStart;
+  let upshiftUpdates = s.upshiftUpdates + 1;
 
-  if (canDownshift && rung < LADDER_RUNGS.length - 1) {
-    rung += 1;
-    windowStart = now;
-    nextUpdatesInWindow = 0;
-  } else if (canUpshift && rung > 0) {
-    rung -= 1;
-    windowStart = now;
-    nextUpdatesInWindow = 0;
+  // The downshift window judges first: it's the shorter of the two,
+  // and a downshift it triggers resets the upshift window below.
+  const downshiftElapsedMs = now - downshiftWindowStart;
+  if (downshiftElapsedMs >= DOWNSHIFT_WINDOW_MS) {
+    const ratePerSec = (downshiftUpdates * 1000) / downshiftElapsedMs;
+    const canDownshift = rung < LADDER_RUNGS.length - 1;
+    if (ratePerSec < DOWNSHIFT_BELOW_PER_SEC && canDownshift) {
+      rung += 1;
+      upshiftWindowStart = now;
+      upshiftUpdates = 0;
+    }
+    downshiftWindowStart = now;
+    downshiftUpdates = 0;
+  }
+
+  const upshiftElapsedMs = now - upshiftWindowStart;
+  if (upshiftElapsedMs >= UPSHIFT_WINDOW_MS) {
+    const ratePerSec = (upshiftUpdates * 1000) / upshiftElapsedMs;
+    if (ratePerSec > UPSHIFT_ABOVE_PER_SEC && rung > 0) {
+      rung -= 1;
+    }
+    upshiftWindowStart = now;
+    upshiftUpdates = 0;
   }
 
   return {
-    state: { rung, windowStart, updatesInWindow: nextUpdatesInWindow },
+    state: {
+      rung,
+      downshiftWindowStart,
+      downshiftUpdates,
+      upshiftWindowStart,
+      upshiftUpdates,
+    },
     maxDimension: LADDER_RUNGS[rung],
     degraded: rung > 0,
   };
