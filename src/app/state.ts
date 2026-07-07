@@ -1,6 +1,7 @@
 import type { FrameAnalysis, FrameId } from "../model";
-import type { SetTriple } from "../set";
+import type { SetIdentity } from "../set/identity";
 import type { PipelineStage } from "../worker/protocol";
+import type { AnalyzedSet } from "./highlights";
 import type { Capture } from "./capture";
 import { guidanceFor } from "./guidance";
 import { findSetsInAnalysis } from "./highlights";
@@ -13,13 +14,20 @@ export type EngineState =
 
 export type Screen =
   | { phase: "idle"; notice: string | null }
-  | { phase: "analyzing"; capture: Capture }
+  | {
+      phase: "analyzing";
+      capture: Capture;
+      // selection carried across a reanalyze of the same capture;
+      // null for a fresh capture (spec: reanalyze keeps the selected
+      // identity when the new result still contains it)
+      carrySelected: SetIdentity | null;
+    }
   | {
       phase: "results";
       capture: Capture;
       analysis: FrameAnalysis;
-      triples: SetTriple[];
-      selected: number;
+      sets: AnalyzedSet[];
+      selected: SetIdentity | null;
     };
 
 // Graduated spoiler ladder: what the results screen may disclose.
@@ -44,7 +52,7 @@ export type AppEvent =
   | { type: "cancel" }
   | { type: "retake" }
   | { type: "reanalyze" }
-  | { type: "select-set"; index: number }
+  | { type: "select-set"; id: SetIdentity }
   | { type: "set-reveal"; mode: RevealMode };
 
 export function initialState(): AppState {
@@ -58,7 +66,11 @@ export function initialState(): AppState {
 function reduceScreen(screen: Screen, event: AppEvent): Screen {
   switch (event.type) {
     case "captured":
-      return { phase: "analyzing", capture: event.capture };
+      return {
+        phase: "analyzing",
+        capture: event.capture,
+        carrySelected: null,
+      };
     case "analysis-ok": {
       if (
         screen.phase !== "analyzing" ||
@@ -66,13 +78,18 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
       ) {
         return screen; // stale result: a cancel/re-capture won
       }
-      const { triples } = findSetsInAnalysis(event.analysis);
+      const { sets } = findSetsInAnalysis(event.analysis);
+      const carried = screen.carrySelected;
+      const selected =
+        carried !== null && sets.some((set) => set.id === carried)
+          ? carried
+          : (sets[0]?.id ?? null);
       return {
         phase: "results",
         capture: screen.capture,
         analysis: event.analysis,
-        triples,
-        selected: triples.length > 0 ? 0 : -1,
+        sets,
+        selected,
       };
     }
     case "analysis-superseded":
@@ -92,11 +109,15 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
         : screen;
     case "reanalyze":
       return screen.phase === "results"
-        ? { phase: "analyzing", capture: screen.capture }
+        ? {
+            phase: "analyzing",
+            capture: screen.capture,
+            carrySelected: screen.selected,
+          }
         : screen;
     case "select-set":
       return screen.phase === "results"
-        ? { ...screen, selected: event.index }
+        ? { ...screen, selected: event.id }
         : screen;
     default:
       return screen;

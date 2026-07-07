@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Card, FrameAnalysis } from "../model";
 import { cardFromKey, cardId, frameId } from "../model";
 import type { CardKey } from "../model";
+import type { SetIdentity } from "../set/identity";
 import type { Capture } from "./capture";
 import { initialState, reduce } from "./state";
 
@@ -40,6 +41,13 @@ function analysisOf(id: number, keys: string[]): FrameAnalysis {
 }
 
 const SET_KEYS = ["1-red-oval-solid", "2-red-oval-solid", "3-red-oval-solid"];
+const OTHER_SET_KEYS = [
+  "1-green-diamond-open",
+  "2-green-diamond-open",
+  "3-green-diamond-open",
+];
+const SET_ID = SET_KEYS.join("|") as SetIdentity;
+const OTHER_SET_ID = OTHER_SET_KEYS.join("|") as SetIdentity;
 
 describe("reduce", () => {
   test("captured moves idle to analyzing", () => {
@@ -50,7 +58,7 @@ describe("reduce", () => {
     expect(state.screen.phase).toBe("analyzing");
   });
 
-  test("matching analysis-ok lands on results with sets selected", () => {
+  test("matching analysis-ok lands on results with first set selected", () => {
     let state = reduce(initialState(), {
       type: "captured",
       capture: captureOf(1),
@@ -61,8 +69,128 @@ describe("reduce", () => {
     });
     expect(state.screen.phase).toBe("results");
     if (state.screen.phase === "results") {
-      expect(state.screen.triples).toHaveLength(1);
-      expect(state.screen.selected).toBe(0);
+      expect(state.screen.sets).toHaveLength(1);
+      expect(state.screen.sets[0].id).toBe(SET_ID);
+      expect(state.screen.selected).toBe(SET_ID);
+    }
+  });
+
+  test("analysis-ok with no sets selects null", () => {
+    let state = reduce(initialState(), {
+      type: "captured",
+      capture: captureOf(1),
+    });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(1, ["1-red-oval-solid"]),
+    });
+    expect(state.screen.phase).toBe("results");
+    if (state.screen.phase === "results") {
+      expect(state.screen.sets).toEqual([]);
+      expect(state.screen.selected).toBeNull();
+    }
+  });
+
+  test("select-set by identity round-trips", () => {
+    let state = reduce(initialState(), {
+      type: "captured",
+      capture: captureOf(1),
+    });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(1, [...SET_KEYS, ...OTHER_SET_KEYS]),
+    });
+    expect(state.screen.phase).toBe("results");
+    if (state.screen.phase === "results") {
+      expect(state.screen.sets.map((s) => s.id)).toEqual([
+        SET_ID,
+        OTHER_SET_ID,
+      ]);
+      expect(state.screen.selected).toBe(SET_ID);
+    }
+    state = reduce(state, { type: "select-set", id: OTHER_SET_ID });
+    if (state.screen.phase === "results") {
+      expect(state.screen.selected).toBe(OTHER_SET_ID);
+    }
+  });
+
+  test("reanalyze keeps a selection whose identity survives", () => {
+    const capture = captureOf(4);
+    let state = reduce(initialState(), { type: "captured", capture });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(4, [...SET_KEYS, ...OTHER_SET_KEYS]),
+    });
+    state = reduce(state, { type: "select-set", id: OTHER_SET_ID });
+    state = reduce(state, { type: "reanalyze" });
+    expect(state.screen.phase).toBe("analyzing");
+    // same set survives even though ids/order shifted
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(4, [...OTHER_SET_KEYS, ...SET_KEYS]),
+    });
+    expect(state.screen.phase).toBe("results");
+    if (state.screen.phase === "results") {
+      expect(state.screen.selected).toBe(OTHER_SET_ID);
+    }
+  });
+
+  test("reanalyze losing the selected identity falls back to first", () => {
+    const capture = captureOf(4);
+    let state = reduce(initialState(), { type: "captured", capture });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(4, [...SET_KEYS, ...OTHER_SET_KEYS]),
+    });
+    state = reduce(state, { type: "select-set", id: OTHER_SET_ID });
+    state = reduce(state, { type: "reanalyze" });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(4, SET_KEYS),
+    });
+    expect(state.screen.phase).toBe("results");
+    if (state.screen.phase === "results") {
+      expect(state.screen.selected).toBe(SET_ID);
+    }
+  });
+
+  test("reanalyze losing all sets falls back to null", () => {
+    const capture = captureOf(4);
+    let state = reduce(initialState(), { type: "captured", capture });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(4, SET_KEYS),
+    });
+    state = reduce(state, { type: "reanalyze" });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(4, ["1-red-oval-solid"]),
+    });
+    expect(state.screen.phase).toBe("results");
+    if (state.screen.phase === "results") {
+      expect(state.screen.selected).toBeNull();
+    }
+  });
+
+  test("a fresh capture does not carry the previous selection", () => {
+    let state = reduce(initialState(), {
+      type: "captured",
+      capture: captureOf(1),
+    });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(1, [...SET_KEYS, ...OTHER_SET_KEYS]),
+    });
+    state = reduce(state, { type: "select-set", id: OTHER_SET_ID });
+    state = reduce(state, { type: "retake" });
+    state = reduce(state, { type: "captured", capture: captureOf(2) });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(2, [...SET_KEYS, ...OTHER_SET_KEYS]),
+    });
+    expect(state.screen.phase).toBe("results");
+    if (state.screen.phase === "results") {
+      expect(state.screen.selected).toBe(SET_ID);
     }
   });
 

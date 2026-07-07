@@ -1,26 +1,37 @@
-import type { CardId, DetectedCard, FrameAnalysis, Quad } from "../model";
+import type { Card, CardId, DetectedCard, FrameAnalysis } from "../model";
 import type { SetTriple } from "../set";
 import { findSets, makeTableau } from "../set";
+import type { SetIdentity } from "../set/identity";
+import { setIdentityOf } from "../set/identity";
+
+// A found set joined back to this frame's detections: the triple of
+// CardIds plus the frame-independent identity of its member faces
+// (spec: selection and styling key on identity, never array index).
+export interface AnalyzedSet {
+  id: SetIdentity;
+  triple: SetTriple;
+}
 
 // The one construction site of the id-join invariant between solver
 // output and detection geometry (spec: Highlight join).
 export function findSetsInAnalysis(analysis: FrameAnalysis): {
-  triples: SetTriple[];
-  quadsFor(triple: SetTriple): Quad[];
+  sets: AnalyzedSet[];
 } {
   const byId = new Map<CardId, DetectedCard>(
     analysis.cards.map((card) => [card.id, card]),
   );
+  const cardOf = (id: CardId): Card => {
+    const found = byId.get(id);
+    if (!found) throw new Error(`unknown CardId ${id}`);
+    return found.card;
+  };
   const triples = findSets(
     makeTableau(analysis.cards.map(({ id, card }) => ({ id, card }))),
   );
   return {
-    triples,
-    quadsFor: (triple) =>
-      triple.map((id) => {
-        const found = byId.get(id);
-        if (!found) throw new Error(`unknown CardId ${id}`);
-        return found.quad;
-      }),
+    sets: triples.map((triple) => ({
+      id: setIdentityOf(triple.map(cardOf) as [Card, Card, Card]),
+      triple,
+    })),
   };
 }

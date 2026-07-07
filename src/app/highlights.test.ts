@@ -30,22 +30,41 @@ function analysisOf(cards: DetectedCard[]): FrameAnalysis {
 }
 
 describe("findSetsInAnalysis", () => {
-  test("finds triples and joins them back to quads", () => {
+  test("finds sets with triples and identities", () => {
     const analysis = analysisOf([
       detected(0, "1-red-oval-solid"),
       detected(1, "2-red-oval-solid"),
       detected(2, "3-red-oval-solid"),
       detected(3, "1-green-diamond-open"),
     ]);
-    const { triples, quadsFor } = findSetsInAnalysis(analysis);
-    expect(triples).toEqual([[cardId(0), cardId(1), cardId(2)]]);
-    const quads = quadsFor(triples[0]);
-    expect(quads).toHaveLength(3);
-    expect(quads[1][0].x).toBe(10); // id 1's quad, by identity
+    const { sets } = findSetsInAnalysis(analysis);
+    expect(sets).toHaveLength(1);
+    expect(sets[0].triple).toEqual([cardId(0), cardId(1), cardId(2)]);
+    expect(sets[0].id).toBe(
+      "1-red-oval-solid|2-red-oval-solid|3-red-oval-solid",
+    );
   });
 
-  test("no sets yields empty triples", () => {
+  test("identity is stable across detection order and ids", () => {
+    const forward = findSetsInAnalysis(
+      analysisOf([
+        detected(0, "1-red-oval-solid"),
+        detected(1, "2-red-oval-solid"),
+        detected(2, "3-red-oval-solid"),
+      ]),
+    );
+    const shuffled = findSetsInAnalysis(
+      analysisOf([
+        detected(4, "3-red-oval-solid"),
+        detected(7, "1-red-oval-solid"),
+        detected(9, "2-red-oval-solid"),
+      ]),
+    );
+    expect(forward.sets[0].id).toBe(shuffled.sets[0].id);
+  });
+
+  test("no sets yields empty list", () => {
     const analysis = analysisOf([detected(0, "1-red-oval-solid")]);
-    expect(findSetsInAnalysis(analysis).triples).toEqual([]);
+    expect(findSetsInAnalysis(analysis).sets).toEqual([]);
   });
 });

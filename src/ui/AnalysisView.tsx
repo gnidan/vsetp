@@ -1,22 +1,23 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
+import type { AnalyzedSet } from "../app/highlights";
 import type { FrameAnalysis } from "../model";
-import type { SetTriple } from "../set";
+import type { SetIdentity } from "../set/identity";
 import { displayTransform } from "./homography";
 import { Overlay } from "./Overlay";
 
 export function AnalysisView({
   capture,
   analysis,
-  triples,
+  sets,
   selected,
   busyLabel,
   onCancel,
 }: {
   capture: Capture;
   analysis: FrameAnalysis | null; // null while analyzing
-  triples: SetTriple[];
-  selected: number;
+  sets: AnalyzedSet[];
+  selected: SetIdentity | null;
   busyLabel: string | null;
   onCancel?: () => void;
 }) {
@@ -55,7 +56,7 @@ export function AnalysisView({
           height={capture.height}
         />
         {analysis && (
-          <Overlay analysis={analysis} triples={triples} selected={selected} />
+          <Overlay analysis={analysis} sets={sets} selected={selected} />
         )}
         {busyLabel && (
           // no role="status" here: the persistent live region in App

@@ -270,8 +270,8 @@ function Session({
               <AnalysisView
                 capture={screen.capture}
                 analysis={null}
-                triples={[]}
-                selected={-1}
+                sets={[]}
+                selected={null}
                 busyLabel={
                   engine.status === "ready" ? "Analyzing…" : "Warming up…"
                 }
@@ -285,12 +285,12 @@ function Session({
                 <AnalysisView
                   capture={screen.capture}
                   analysis={screen.analysis}
-                  triples={reveal === "sets" ? screen.triples : []}
-                  selected={reveal === "sets" ? screen.selected : -1}
+                  sets={reveal === "sets" ? screen.sets : []}
+                  selected={reveal === "sets" ? screen.selected : null}
                   busyLabel={null}
                 />
                 {reveal === "presence" && (
-                  <PresenceBorder present={screen.triples.length > 0} />
+                  <PresenceBorder present={screen.sets.length > 0} />
                 )}
                 <div className="hud-stack">
                   {install !== "none" && (
@@ -321,12 +321,10 @@ function Session({
                   )}
                   <Hud
                     analysis={screen.analysis}
-                    triples={screen.triples}
+                    sets={screen.sets}
                     selected={screen.selected}
                     reveal={reveal}
-                    onSelect={(index) =>
-                      dispatch({ type: "select-set", index })
-                    }
+                    onSelect={(id) => dispatch({ type: "select-set", id })}
                     onReveal={(mode) => dispatch({ type: "set-reveal", mode })}
                     onRetake={() => dispatch({ type: "retake" })}
                     onReanalyze={() => {
@@ -340,7 +338,7 @@ function Session({
                 </div>
                 <SrResults
                   analysis={screen.analysis}
-                  triples={screen.triples}
+                  sets={screen.sets}
                   selected={screen.selected}
                   revealSets={reveal === "sets"}
                 />

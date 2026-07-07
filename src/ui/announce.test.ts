@@ -2,9 +2,17 @@ import { describe, expect, test } from "vitest";
 import type { Card, FrameAnalysis } from "../model";
 import { cardFromKey, cardId, frameId } from "../model";
 import type { CardKey } from "../model";
+import type { AnalyzedSet } from "../app/highlights";
 import type { AppState } from "../app/state";
 import { initialState } from "../app/state";
+import type { SetIdentity } from "../set/identity";
 import { announcementFor } from "./announce";
+
+// announcementFor reads only counts; any set shape will do
+const SOME_SET: AnalyzedSet = {
+  id: "1-red-oval-solid|2-red-oval-solid|3-red-oval-solid" as SetIdentity,
+  triple: [cardId(0), cardId(1), cardId(2)],
+};
 
 function withEngine(engine: AppState["engine"]): AppState {
   return { ...initialState(), engine };
@@ -92,7 +100,11 @@ describe("announcementFor", () => {
   test("analyzing phase announces progress", () => {
     const state: AppState = {
       engine: { status: "ready" },
-      screen: { phase: "analyzing", capture: captureOf(1) },
+      screen: {
+        phase: "analyzing",
+        capture: captureOf(1),
+        carrySelected: null,
+      },
       reveal: "cards",
     };
     expect(announcementFor(state)).toBe("Analyzing…");
@@ -113,8 +125,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(10),
         analysis: analysisOf(10, keys),
-        triples: [],
-        selected: -1,
+        sets: [],
+        selected: null,
       },
       reveal: "cards",
     };
@@ -124,7 +136,11 @@ describe("announcementFor", () => {
   test("precedence: a loading engine wins over an analyzing screen", () => {
     const state: AppState = {
       engine: { status: "loading", loaded: 1, total: 2 },
-      screen: { phase: "analyzing", capture: captureOf(11) },
+      screen: {
+        phase: "analyzing",
+        capture: captureOf(11),
+        carrySelected: null,
+      },
       reveal: "cards",
     };
     expect(announcementFor(state)).toBe("Loading card reader… 50%");
@@ -138,8 +154,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(2),
         analysis: analysisOf(2, keys),
-        triples: [[cardId(0), cardId(1), cardId(2)]],
-        selected: 0,
+        sets: [SOME_SET],
+        selected: SOME_SET.id,
       },
       reveal: "sets",
     };
@@ -154,8 +170,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(3),
         analysis: analysisOf(3, keys),
-        triples: [],
-        selected: -1,
+        sets: [],
+        selected: null,
       },
       reveal: "sets",
     };
@@ -170,8 +186,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(4),
         analysis: analysisOf(4, keys),
-        triples: [[cardId(0), cardId(1), cardId(2)]],
-        selected: 0,
+        sets: [SOME_SET],
+        selected: SOME_SET.id,
       },
       reveal: "cards",
     };
@@ -185,8 +201,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(9),
         analysis: analysisOf(9, ["1-red-oval-solid"]),
-        triples: [],
-        selected: -1,
+        sets: [],
+        selected: null,
       },
       reveal: "cards",
     };
@@ -201,8 +217,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(5),
         analysis: analysisOf(5, keys),
-        triples: [[cardId(0), cardId(1), cardId(2)]],
-        selected: 0,
+        sets: [SOME_SET],
+        selected: SOME_SET.id,
       },
       reveal: "presence",
     };
@@ -217,8 +233,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(6),
         analysis: analysisOf(6, keys),
-        triples: [],
-        selected: -1,
+        sets: [],
+        selected: null,
       },
       reveal: "presence",
     };
@@ -239,8 +255,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(7),
         analysis,
-        triples: [],
-        selected: -1,
+        sets: [],
+        selected: null,
       },
       reveal: "cards",
     };
@@ -256,8 +272,8 @@ describe("announcementFor", () => {
         phase: "results",
         capture: captureOf(8),
         analysis: analysisOf(8, []),
-        triples: [],
-        selected: -1,
+        sets: [],
+        selected: null,
       },
       reveal: "cards",
     };

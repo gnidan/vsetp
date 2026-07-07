@@ -1,6 +1,7 @@
+import type { AnalyzedSet } from "../app/highlights";
 import type { RevealMode } from "../app/state";
 import type { FrameAnalysis } from "../model";
-import type { SetTriple } from "../set";
+import type { SetIdentity } from "../set/identity";
 import { plural } from "./announce";
 
 // Ladder order — the segmented control renders these left to right.
@@ -24,7 +25,7 @@ function summaryFor(reveal: RevealMode, cards: number, sets: number): string {
 
 export function Hud({
   analysis,
-  triples,
+  sets,
   selected,
   reveal,
   onSelect,
@@ -33,15 +34,15 @@ export function Hud({
   onReanalyze,
 }: {
   analysis: FrameAnalysis;
-  triples: SetTriple[];
-  selected: number;
+  sets: AnalyzedSet[];
+  selected: SetIdentity | null;
   reveal: RevealMode;
-  onSelect(index: number): void;
+  onSelect(id: SetIdentity): void;
   onReveal(mode: RevealMode): void;
   onRetake(): void;
   onReanalyze(): void;
 }) {
-  const summary = summaryFor(reveal, analysis.cards.length, triples.length);
+  const summary = summaryFor(reveal, analysis.cards.length, sets.length);
   return (
     <div className="hud">
       <p className="hud-summary">{summary}</p>
@@ -56,13 +57,13 @@ export function Hud({
           </button>
         ))}
       </div>
-      {reveal === "sets" && triples.length > 1 && (
+      {reveal === "sets" && sets.length > 1 && (
         <div className="hud-chips" role="group" aria-label="Found sets">
-          {triples.map((_, index) => (
+          {sets.map((set, index) => (
             <button
-              key={index}
-              aria-pressed={index === selected}
-              onClick={() => onSelect(index)}
+              key={set.id}
+              aria-pressed={set.id === selected}
+              onClick={() => onSelect(set.id)}
             >
               {index + 1}
             </button>

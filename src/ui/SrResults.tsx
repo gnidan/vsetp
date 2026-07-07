@@ -1,5 +1,6 @@
+import type { AnalyzedSet } from "../app/highlights";
 import type { FrameAnalysis } from "../model";
-import type { SetTriple } from "../set";
+import type { SetIdentity } from "../set/identity";
 import { reading } from "./readings";
 
 // The accessible results list. Visually hidden, semantically primary:
@@ -8,21 +9,22 @@ import { reading } from "./readings";
 // annotations appear only when the reveal mode discloses sets.
 export function SrResults({
   analysis,
-  triples,
+  sets,
   selected,
   revealSets,
 }: {
   analysis: FrameAnalysis;
-  triples: SetTriple[];
-  selected: number;
+  sets: AnalyzedSet[];
+  selected: SetIdentity | null;
   revealSets: boolean;
 }) {
+  const selectedSet = sets.find((set) => set.id === selected);
   return (
     <ol className="sr-only" aria-label="Detected cards">
       {analysis.cards.map((card) => (
         <li key={card.id}>
           {reading(card)}
-          {revealSets && selected >= 0 && triples[selected]?.includes(card.id)
+          {revealSets && selectedSet?.triple.includes(card.id)
             ? " — in the highlighted set"
             : ""}
         </li>

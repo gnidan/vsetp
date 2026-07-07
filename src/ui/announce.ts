@@ -32,7 +32,7 @@ export function announcementFor(state: AppState): string {
     case "analyzing":
       return "Analyzing…";
     case "results": {
-      const sets = screen.triples.length;
+      const sets = screen.sets.length;
       const cards = screen.analysis.cards.length;
       // Spoiler parity: below "sets" reveal, announcements must not
       // leak set information beyond what the mode discloses.

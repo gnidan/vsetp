@@ -1,7 +1,7 @@
 import type { Quad } from "../model";
 
 // Validated line palette (see .superpowers/sdd/line-demo.png). Colors
-// are assigned by set index in triples order and never reshuffled by
+// are assigned by array-order set index and never reshuffled by
 // selection; selection emphasizes by WEIGHT, not hue.
 export const SET_LINE_COLORS = [
   "#22d3ee",
