@@ -10,6 +10,7 @@ import {
 } from "../app/worker-client";
 import { announcementFor } from "./announce";
 import { AnalysisView } from "./AnalysisView";
+import { CameraProvider } from "./CameraProvider";
 import { CaptureView } from "./CaptureView";
 import { Hud } from "./Hud";
 import { PresenceBorder } from "./PresenceBorder";
@@ -60,11 +61,13 @@ export function App() {
       <div aria-live="polite" role="status" className="sr-only">
         {announcement}
       </div>
-      <Session
-        key={generation}
-        announce={setAnnouncement}
-        onRetry={() => setGeneration((n) => n + 1)}
-      />
+      <CameraProvider>
+        <Session
+          key={generation}
+          announce={setAnnouncement}
+          onRetry={() => setGeneration((n) => n + 1)}
+        />
+      </CameraProvider>
     </>
   );
 }
@@ -244,112 +247,110 @@ function Session({
 
   return (
     <main className="app">
-      {engine.status === "failed" ? (
-        <div className="capture-center">
+      {engine.status === "loading" && (
+        <p className="engine-progress">
+          Loading card reader…{" "}
+          {engine.total
+            ? `${Math.round((engine.loaded / engine.total) * 100)}%`
+            : `${Math.round(engine.loaded / 1024 / 1024)}MB`}
+        </p>
+      )}
+      {/* the stage (and the camera it displays via CameraProvider)
+          stays mounted through an engine failure: only an overlay
+          appears on top, so Retry never re-triggers a camera prompt */}
+      <div className="stage">
+        <CaptureView
+          active={screen.phase === "idle"}
+          notice={screen.phase === "idle" ? screen.notice : null}
+          onCapture={onCapture}
+          onCaptureError={(message) =>
+            dispatch({ type: "capture-failed", message })
+          }
+        />
+        {screen.phase === "analyzing" && (
+          <AnalysisView
+            capture={screen.capture}
+            analysis={null}
+            sets={[]}
+            selected={null}
+            busyLabel={engine.status === "ready" ? "Analyzing…" : "Warming up…"}
+            onCancel={() => dispatch({ type: "cancel" })}
+          />
+        )}
+        {screen.phase === "results" && (
+          <>
+            {/* spoiler parity: below the "sets" reveal, the
+                overlay never receives set data at all */}
+            <AnalysisView
+              capture={screen.capture}
+              analysis={screen.analysis}
+              sets={reveal === "sets" ? screen.sets : []}
+              selected={reveal === "sets" ? screen.selected : null}
+              busyLabel={null}
+            />
+            {reveal === "presence" && (
+              <PresenceBorder present={screen.sets.length > 0} />
+            )}
+            <div className="hud-stack">
+              {install !== "none" && (
+                <div className="notice install-banner">
+                  {install === "prompt" ? (
+                    <button
+                      type="button"
+                      className="install-action"
+                      onClick={() => void onInstallClick()}
+                    >
+                      Install vsetp
+                    </button>
+                  ) : (
+                    <span>
+                      Add to Home Screen from the share menu to keep vsetp
+                      handy.
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="notice-dismiss"
+                    aria-label="Dismiss install banner"
+                    onClick={dismissInstallBanner}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              <Hud
+                analysis={screen.analysis}
+                sets={screen.sets}
+                selected={screen.selected}
+                reveal={reveal}
+                onSelect={(id) => dispatch({ type: "select-set", id })}
+                onReveal={(mode) => dispatch({ type: "set-reveal", mode })}
+                onRetake={() => dispatch({ type: "retake" })}
+                onReanalyze={() => {
+                  const client = clientRef.current;
+                  if (!client) return;
+                  const capture = screen.capture;
+                  dispatch({ type: "reanalyze" });
+                  analyzeCapture(client, capture);
+                }}
+              />
+            </div>
+            <SrResults
+              analysis={screen.analysis}
+              sets={screen.sets}
+              selected={screen.selected}
+              revealSets={reveal === "sets"}
+            />
+          </>
+        )}
+      </div>
+      {engine.status === "failed" && (
+        <div className="failure-overlay">
           <p className="notice">{engine.message}</p>
           <button className="primary" onClick={onRetry}>
             Retry
           </button>
         </div>
-      ) : (
-        <>
-          {engine.status === "loading" && (
-            <p className="engine-progress">
-              Loading card reader…{" "}
-              {engine.total
-                ? `${Math.round((engine.loaded / engine.total) * 100)}%`
-                : `${Math.round(engine.loaded / 1024 / 1024)}MB`}
-            </p>
-          )}
-          <div className="stage">
-            <CaptureView
-              active={screen.phase === "idle"}
-              notice={screen.phase === "idle" ? screen.notice : null}
-              onCapture={onCapture}
-              onCaptureError={(message) =>
-                dispatch({ type: "capture-failed", message })
-              }
-            />
-            {screen.phase === "analyzing" && (
-              <AnalysisView
-                capture={screen.capture}
-                analysis={null}
-                sets={[]}
-                selected={null}
-                busyLabel={
-                  engine.status === "ready" ? "Analyzing…" : "Warming up…"
-                }
-                onCancel={() => dispatch({ type: "cancel" })}
-              />
-            )}
-            {screen.phase === "results" && (
-              <>
-                {/* spoiler parity: below the "sets" reveal, the
-                    overlay never receives set data at all */}
-                <AnalysisView
-                  capture={screen.capture}
-                  analysis={screen.analysis}
-                  sets={reveal === "sets" ? screen.sets : []}
-                  selected={reveal === "sets" ? screen.selected : null}
-                  busyLabel={null}
-                />
-                {reveal === "presence" && (
-                  <PresenceBorder present={screen.sets.length > 0} />
-                )}
-                <div className="hud-stack">
-                  {install !== "none" && (
-                    <div className="notice install-banner">
-                      {install === "prompt" ? (
-                        <button
-                          type="button"
-                          className="install-action"
-                          onClick={() => void onInstallClick()}
-                        >
-                          Install vsetp
-                        </button>
-                      ) : (
-                        <span>
-                          Add to Home Screen from the share menu to keep vsetp
-                          handy.
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        className="notice-dismiss"
-                        aria-label="Dismiss install banner"
-                        onClick={dismissInstallBanner}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  )}
-                  <Hud
-                    analysis={screen.analysis}
-                    sets={screen.sets}
-                    selected={screen.selected}
-                    reveal={reveal}
-                    onSelect={(id) => dispatch({ type: "select-set", id })}
-                    onReveal={(mode) => dispatch({ type: "set-reveal", mode })}
-                    onRetake={() => dispatch({ type: "retake" })}
-                    onReanalyze={() => {
-                      const client = clientRef.current;
-                      if (!client) return;
-                      const capture = screen.capture;
-                      dispatch({ type: "reanalyze" });
-                      analyzeCapture(client, capture);
-                    }}
-                  />
-                </div>
-                <SrResults
-                  analysis={screen.analysis}
-                  sets={screen.sets}
-                  selected={screen.selected}
-                  revealSets={reveal === "sets"}
-                />
-              </>
-            )}
-          </div>
-        </>
       )}
     </main>
   );

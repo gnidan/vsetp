@@ -53,9 +53,21 @@ body {
   overflow: hidden;
   background: #000;
 }
-.capture video {
-  width: 100%;
-  height: 100%;
+/* the live feed shows through from .camera-video underneath; a
+   solid backdrop here would hide it (see .camera-video for why it
+   isn't a DOM descendant of .stage) */
+.capture.live {
+  background: transparent;
+}
+/* Rendered by CameraProvider, which sits above <Session> (and so
+   above .stage) in the tree so the camera survives a Retry remount.
+   Positioned by the viewport using the SAME safe-area env() values
+   as .app's padding, which makes this box coincide with .stage's
+   rect exactly without being its DOM descendant. */
+.camera-video {
+  position: fixed;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
   object-fit: cover;
 }
 .frame-space {
@@ -137,6 +149,14 @@ body {
   background: #00e5ff;
   color: #06121f;
 }
+.secondary {
+  font-size: 1rem;
+  padding: 0.7rem 1.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: #f2f5f9;
+}
 .shutter {
   position: absolute;
   bottom: 1.5rem;
@@ -153,6 +173,20 @@ body {
   text-align: center;
   padding: 1rem;
   z-index: 1;
+}
+/* engine-failed panel: the stage (and its camera) stays mounted
+   underneath, so this needs its own opaque backdrop and the
+   highest z-index in .stage's stacking order */
+.failure-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 1rem;
+  text-align: center;
+  padding: 1rem;
+  background: #06121f;
+  z-index: 5;
 }
 .picker {
   position: absolute;
