@@ -45,6 +45,25 @@ describe("findSetsInAnalysis", () => {
     );
   });
 
+  test("colliding identities are disambiguated, not deduped", () => {
+    // two detections misread as the same face key: two distinct
+    // physical cards each complete a set with the same raw identity
+    const analysis = analysisOf([
+      detected(0, "1-red-oval-solid"),
+      detected(1, "1-red-oval-solid"),
+      detected(2, "2-red-oval-solid"),
+      detected(3, "3-red-oval-solid"),
+    ]);
+    const { sets } = findSetsInAnalysis(analysis);
+    expect(sets).toHaveLength(2);
+    expect(sets[0].triple).toEqual([cardId(0), cardId(2), cardId(3)]);
+    expect(sets[1].triple).toEqual([cardId(1), cardId(2), cardId(3)]);
+    const raw = "1-red-oval-solid|2-red-oval-solid|3-red-oval-solid";
+    expect(sets[0].id).toBe(raw);
+    expect(sets[1].id).toBe(`${raw}#2`);
+    expect(new Set(sets.map((s) => s.id)).size).toBe(2);
+  });
+
   test("identity is stable across detection order and ids", () => {
     const forward = findSetsInAnalysis(
       analysisOf([

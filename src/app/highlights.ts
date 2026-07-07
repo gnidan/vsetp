@@ -28,10 +28,22 @@ export function findSetsInAnalysis(analysis: FrameAnalysis): {
   const triples = findSets(
     makeTableau(analysis.cards.map(({ id, card }) => ({ id, card }))),
   );
+  // Two detections misread as the same face key can yield distinct
+  // sets with the same raw identity. Disambiguate, don't dedupe: they
+  // involve different physical cards and must render and select
+  // independently. First occurrence keeps the bare identity; later
+  // ones get a deterministic #n suffix in sets order. Live mode's
+  // liveSetsOf must apply this same rule.
+  const seen = new Map<SetIdentity, number>();
   return {
-    sets: triples.map((triple) => ({
-      id: setIdentityOf(triple.map(cardOf) as [Card, Card, Card]),
-      triple,
-    })),
+    sets: triples.map((triple) => {
+      const raw = setIdentityOf(triple.map(cardOf) as [Card, Card, Card]);
+      const n = (seen.get(raw) ?? 0) + 1;
+      seen.set(raw, n);
+      return {
+        id: n === 1 ? raw : (`${raw}#${n}` as SetIdentity),
+        triple,
+      };
+    }),
   };
 }

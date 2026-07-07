@@ -114,6 +114,28 @@ describe("reduce", () => {
     }
   });
 
+  test("selecting a disambiguated (suffixed) identity round-trips", () => {
+    // a duplicated face key yields two sets colliding on the raw
+    // identity; the second is suffixed #2 (see highlights.ts)
+    let state = reduce(initialState(), {
+      type: "captured",
+      capture: captureOf(1),
+    });
+    state = reduce(state, {
+      type: "analysis-ok",
+      analysis: analysisOf(1, ["1-red-oval-solid", ...SET_KEYS]),
+    });
+    const suffixed = `${SET_ID}#2` as SetIdentity;
+    expect(state.screen.phase).toBe("results");
+    if (state.screen.phase === "results") {
+      expect(state.screen.sets.map((s) => s.id)).toEqual([SET_ID, suffixed]);
+    }
+    state = reduce(state, { type: "select-set", id: suffixed });
+    if (state.screen.phase === "results") {
+      expect(state.screen.selected).toBe(suffixed);
+    }
+  });
+
   test("reanalyze keeps a selection whose identity survives", () => {
     const capture = captureOf(4);
     let state = reduce(initialState(), { type: "captured", capture });
