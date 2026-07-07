@@ -1,13 +1,9 @@
 import sharp from "sharp";
 import type { CardKey, Frame, Point } from "../../src/model";
 import { cardFromKey, frameId } from "../../src/model";
+import { LIVE_FRAME_MAX_DIMENSION } from "../../src/app/live-capture";
 import { cardFaceSvg } from "../../src/ui/card-face";
 import { CARD_RASTER } from "../../src/vision/adapter";
-
-// Live capture long edge (spec: live engine). No exported constant
-// owns this yet — the client capture path that will is Plan D2; keep
-// this literal in sync when it lands.
-export const LIVE_FRAME_MAX_DIMENSION = 768;
 
 // Synthetic table space: 4:3, twice the live frame in each dimension,
 // so a scale-1 window downsamples 2x into a 768x576 frame.

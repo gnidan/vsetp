@@ -14,12 +14,9 @@ import {
   LIVE_CLASSIFY_BUDGET,
   TRACK_RETIRE_FRAMES,
 } from "../src/worker/tracker";
+import { LIVE_FRAME_MAX_DIMENSION } from "../src/app/live-capture";
 import type { SequenceStep } from "./synthetic/sequence";
-import {
-  LIVE_FRAME_MAX_DIMENSION,
-  projectToFrame,
-  renderSequence,
-} from "./synthetic/sequence";
+import { projectToFrame, renderSequence } from "./synthetic/sequence";
 
 // 3x3 tableau of distinct faces, varied across every attribute.
 const GRID_KEYS = [

@@ -321,3 +321,98 @@ describe("live", () => {
     await expect(second).resolves.toBeUndefined();
   });
 });
+
+describe("live onSignal", () => {
+  async function readyClient() {
+    const c = client();
+    const initialized = c.init();
+    worker.emit({ type: "ready" });
+    await initialized;
+    return c;
+  }
+
+  async function liveClient(onSignal: () => void) {
+    const c = await readyClient();
+    const started = c.startLive(() => {}, onSignal);
+    worker.emit({ type: "live-ready" });
+    await started;
+    return c;
+  }
+
+  test("fires on live-update", async () => {
+    const onSignal = vi.fn();
+    await liveClient(onSignal);
+    worker.emit({
+      type: "live-update",
+      frameId: frameId(1),
+      tracks: [],
+      timings: {},
+    });
+    expect(onSignal).toHaveBeenCalledTimes(1);
+  });
+
+  test("fires on a dropped live frame (no pending analyze entry)", async () => {
+    const onSignal = vi.fn();
+    const c = await liveClient(onSignal);
+    c.sendLiveFrame(frameOf(20), 3);
+    worker.emit({ type: "dropped", frameId: frameId(20) });
+    expect(onSignal).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not fire on a still-analyze dropped response", async () => {
+    // analyze() only blocks on liveActive, which flips true on
+    // live-ready, not on the startLive() call itself -- so an
+    // analyze issued in that handshake window is a genuine pending
+    // entry that outlives the transition to live. Its "dropped"
+    // reply must resolve the analyze (superseded) WITHOUT signaling,
+    // proving the pending-entry branch is skipped.
+    const onSignal = vi.fn();
+    const c = await readyClient();
+    const started = c.startLive(() => {}, onSignal);
+    const resulted = c.analyze(frameOf(21));
+    worker.emit({ type: "live-ready" });
+    await started;
+    worker.emit({ type: "dropped", frameId: frameId(21) });
+    await expect(resulted).resolves.toEqual({ status: "superseded" });
+    expect(onSignal).not.toHaveBeenCalled();
+  });
+
+  test("fires on mark-ack", async () => {
+    const onSignal = vi.fn();
+    const c = await liveClient(onSignal);
+    const acked = c.sendMark({ type: "missed-card", at: { x: 1, y: 2 } });
+    const sent = worker.sent[2].message;
+    if (sent.type !== "live-feedback") throw new Error("unreachable");
+    worker.emit({ type: "mark-ack", markId: sent.markId });
+    await acked;
+    expect(onSignal).toHaveBeenCalledTimes(1);
+  });
+
+  test("fires on a non-pending analyze-error (live pipeline error)", async () => {
+    const onSignal = vi.fn();
+    const c = await liveClient(onSignal);
+    c.sendLiveFrame(frameOf(22), 3);
+    worker.emit({
+      type: "analyze-error",
+      frameId: frameId(22),
+      stage: "segment",
+      message: "boom",
+    });
+    expect(onSignal).toHaveBeenCalledTimes(1);
+  });
+
+  test("stops firing after stopLive", async () => {
+    const onSignal = vi.fn();
+    const c = await liveClient(onSignal);
+    const stopped = c.stopLive();
+    worker.emit({ type: "live-stopped" });
+    await stopped;
+    worker.emit({
+      type: "live-update",
+      frameId: frameId(2),
+      tracks: [],
+      timings: {},
+    });
+    expect(onSignal).not.toHaveBeenCalled();
+  });
+});

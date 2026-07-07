@@ -64,7 +64,15 @@ export interface LiveUpdate {
 export interface WorkerClient {
   init(onProgress?: InitProgress): Promise<void>;
   analyze(frame: Frame, options?: DetectOptions): Promise<AnalyzeResult>;
-  startLive(onUpdate: (update: LiveUpdate) => void): Promise<void>;
+  // onSignal, if given, fires on every live-relevant worker message
+  // (live-update, a live-dropped frame, mark-ack, a live pipeline
+  // error) so callers can distinguish a slow-but-alive worker from a
+  // dead one, even when frames are mostly displaced rather than
+  // completed.
+  startLive(
+    onUpdate: (update: LiveUpdate) => void,
+    onSignal?: () => void,
+  ): Promise<void>;
   // The caller's frame.pixels buffer is transferred (not copied) to
   // the worker: it is detached/neutered on return and must not be
   // read or reused afterward.
@@ -117,6 +125,7 @@ export function createWorkerClient(
   let ready = false;
   let liveActive = false;
   let onLiveUpdate: ((update: LiveUpdate) => void) | null = null;
+  let onSignal: (() => void) | null = null;
   let liveStartPending: PendingVoid | null = null;
   let liveStartPromise: Promise<void> | null = null;
   let liveStopPending: PendingVoid | null = null;
@@ -143,6 +152,7 @@ export function createWorkerClient(
     markPending.clear();
     liveActive = false;
     onLiveUpdate = null;
+    onSignal = null;
   }
 
   function handleResponse(data: unknown): void {
@@ -167,7 +177,16 @@ export function createWorkerClient(
         const entry = pending.get(data.frameId);
         // no entry: a late reply after timeout/failure, or a live
         // frame superseded in the worker's mailbox (benign)
-        if (!entry) return;
+        if (!entry) {
+          // a "result" always carries an entry (analyze is the only
+          // request that produces one); a bare "dropped" or
+          // "analyze-error" with none is the live path, so it's the
+          // liveness signal, not a stale reply.
+          if (data.type === "dropped" || data.type === "analyze-error") {
+            onSignal?.();
+          }
+          return;
+        }
         pending.delete(data.frameId);
         clearTimeout(entry.timer);
         if (data.type === "result") {
@@ -189,8 +208,10 @@ export function createWorkerClient(
           tracks: data.tracks,
           timings: data.timings,
         });
+        onSignal?.();
         return;
       case "mark-ack": {
+        onSignal?.();
         const entry = markPending.get(data.markId);
         if (!entry) return;
         markPending.delete(data.markId);
@@ -269,7 +290,10 @@ export function createWorkerClient(
     });
   }
 
-  function startLive(onUpdate: (update: LiveUpdate) => void): Promise<void> {
+  function startLive(
+    onUpdate: (update: LiveUpdate) => void,
+    onLiveSignal?: () => void,
+  ): Promise<void> {
     if (pending.size > 0) {
       return Promise.reject(
         new LiveSessionError("analyze pending; wait before going live"),
@@ -288,6 +312,7 @@ export function createWorkerClient(
         resolve: () => {
           liveActive = true;
           onLiveUpdate = onUpdate;
+          onSignal = onLiveSignal ?? null;
           liveStartPromise = null;
           resolve();
         },
@@ -354,6 +379,7 @@ export function createWorkerClient(
         resolve: () => {
           liveActive = false;
           onLiveUpdate = null;
+          onSignal = null;
           liveStopPromise = null;
           resolve();
         },
