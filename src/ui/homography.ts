@@ -120,6 +120,27 @@ export function toMatrix3d(h: Homography): string {
   return `matrix3d(${m.join(",")})`;
 }
 
+// object-fit: cover — the live viewfinder's mapping. The provider
+// video fills the stage with cover (cropping the overflow axis), so
+// live-frame coordinates must scale by the LARGER ratio and center
+// with negative offsets on the cropped axis to stay glued to the
+// visible pixels. (The frame and the video share an aspect ratio by
+// construction: live capture clamps the video's own dimensions.)
+export function coverTransform(
+  frame: { width: number; height: number },
+  container: { width: number; height: number },
+): { scale: number; offsetX: number; offsetY: number } {
+  const scale = Math.max(
+    container.width / frame.width,
+    container.height / frame.height,
+  );
+  return {
+    scale,
+    offsetX: (container.width - frame.width * scale) / 2,
+    offsetY: (container.height - frame.height * scale) / 2,
+  };
+}
+
 // object-fit: contain — the spec's ViewportTransform
 export function displayTransform(
   frame: { width: number; height: number },

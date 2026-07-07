@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Quad } from "../model";
 import {
   applyHomography,
+  coverTransform,
   displayTransform,
   rectToQuad,
   toMatrix3d,
@@ -87,5 +88,28 @@ describe("displayTransform", () => {
     expect(t.scale).toBeCloseTo(0.25);
     expect(t.offsetX).toBe(0);
     expect(t.offsetY).toBeCloseTo((768 - 576) / 2);
+  });
+});
+
+describe("coverTransform", () => {
+  test("cover-fills: scales to the LARGER ratio and centers", () => {
+    // landscape frame in a square container: height is the binding
+    // axis under cover; the width overflows and centers (crops)
+    const t = coverTransform(
+      { width: 768, height: 576 },
+      { width: 768, height: 768 },
+    );
+    expect(t.scale).toBeCloseTo(768 / 576);
+    expect(t.offsetY).toBe(0);
+    expect(t.offsetX).toBeCloseTo((768 - 768 * (768 / 576)) / 2);
+    expect(t.offsetX).toBeLessThan(0);
+  });
+
+  test("matches displayTransform when aspect ratios agree", () => {
+    const frame = { width: 768, height: 432 };
+    const container = { width: 384, height: 216 };
+    expect(coverTransform(frame, container)).toEqual(
+      displayTransform(frame, container),
+    );
   });
 });

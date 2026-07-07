@@ -1,9 +1,9 @@
 import type { AnalyzedSet } from "../app/highlights";
-import type { FrameAnalysis, Quad } from "../model";
+import type { FrameAnalysis } from "../model";
 import type { SetIdentity } from "../set/identity";
 import { CARD_RASTER } from "../vision/adapter";
 import { ghostFaceDataUrl } from "./card-face";
-import { rectToQuad, toMatrix3d } from "./homography";
+import { ghostTransform, quadPoints } from "./ghost-transform";
 import { SetLines } from "./SetLines";
 
 const UNCERTAIN_BELOW = 0.5;
@@ -11,10 +11,6 @@ const UNCERTAIN_BELOW = 0.5;
 function isUncertain(card: FrameAnalysis["cards"][number]): boolean {
   const c = card.confidence;
   return Math.min(c.count, c.color, c.shape, c.fill) < UNCERTAIN_BELOW;
-}
-
-function outlinePoints(quad: Quad): string {
-  return quad.map((p) => `${p.x},${p.y}`).join(" ");
 }
 
 // Rendered inside a wrapper that establishes frame-pixel coordinates
@@ -44,11 +40,7 @@ export function Overlay({
           alt=""
           width={CARD_RASTER.width}
           height={CARD_RASTER.height}
-          style={{
-            transform: toMatrix3d(
-              rectToQuad(CARD_RASTER.width, CARD_RASTER.height, card.quad),
-            ),
-          }}
+          style={{ transform: ghostTransform(card.quad) }}
         />
       ))}
       <svg
@@ -60,7 +52,7 @@ export function Overlay({
         {analysis.cards.map((card) => (
           <polygon
             key={card.id}
-            points={outlinePoints(card.quad)}
+            points={quadPoints(card.quad)}
             className={[
               "outline",
               members.has(card.id) ? "member" : "bystander",

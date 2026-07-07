@@ -10,6 +10,19 @@ export const SET_LINE_COLORS = [
   "#a5b4fc",
 ] as const;
 export const SET_LINE_CASING = "#0a1420";
+export const SET_LINE_DASH = "28 18";
+
+// Selection emphasizes by WEIGHT, never hue — shared between the
+// still (index-colored) and live (identity-colored) line renderers.
+export function setLineWeights(selected: boolean): {
+  coreWidth: number;
+  casingWidth: number;
+} {
+  return {
+    coreWidth: selected ? 12 : 8,
+    casingWidth: selected ? 20 : 16,
+  };
+}
 
 export function setLineStyle(
   index: number,
@@ -22,9 +35,8 @@ export function setLineStyle(
 } {
   return {
     color: SET_LINE_COLORS[index % SET_LINE_COLORS.length],
-    dash: index >= 4 ? "28 18" : null,
-    coreWidth: selected ? 12 : 8,
-    casingWidth: selected ? 20 : 16,
+    dash: index >= 4 ? SET_LINE_DASH : null,
+    ...setLineWeights(selected),
   };
 }
 

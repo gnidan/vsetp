@@ -25,10 +25,10 @@ function card(overrides: Partial<DetectedCard["card"]>): DetectedCard {
 
 describe("reading", () => {
   test("words in count-fill-color-shape order, pluralized", () => {
-    expect(reading(card({}))).toBe("2 striped red ovals");
+    expect(reading(card({}).card)).toBe("2 striped red ovals");
   });
   test("singular for count 1", () => {
-    expect(reading(card({ count: 1, shape: "diamond" }))).toBe(
+    expect(reading(card({ count: 1, shape: "diamond" }).card)).toBe(
       "1 striped red diamond",
     );
   });

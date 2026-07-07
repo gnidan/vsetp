@@ -312,3 +312,93 @@ body {
 .hud-reveal button:last-child {
   border-radius: 0 999px 999px 0;
 }
+/* ---- live stage ---- */
+/* overlay-only layer: the camera video shows through from the
+   provider underneath; Task 7 adds tap handling and will lift the
+   pointer-events block */
+.live-view {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* the matrix3d carrier: CSS interpolates between per-update
+   transforms so ghosts glide instead of jumping (spec; the
+   decomposed fallback is recorded, not built) */
+.track-ghost {
+  transition: transform 100ms linear;
+}
+.track-outlines {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.track-outline polygon {
+  fill: none;
+  stroke-linejoin: round;
+}
+/* contrast floor is the dark CASING under the core stroke, never a
+   fainter line */
+.track-outline .casing {
+  stroke: #0a1420;
+  stroke-width: 12px;
+}
+.track-outline .core {
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 6px;
+}
+/* uncertainty is dashes, never hue (a11y invariant) */
+.track-outline.uncertain polygon {
+  stroke-dasharray: 18 12;
+}
+/* "reading" shimmers by opacity — dashes stay reserved for
+   uncertainty */
+.track-outline.reading .core {
+  animation: reading-shimmer 1.1s ease-in-out infinite;
+}
+@keyframes reading-shimmer {
+  50% {
+    stroke: rgba(255, 255, 255, 0.35);
+  }
+}
+/* freshness cue: keyed by updateCount, so each live update remounts
+   it and restarts the pulse; degraded (ladder below 768) runs one
+   step dimmer */
+.fresh-pulse {
+  --pulse-peak: 0.9;
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #00e5ff;
+  opacity: 0;
+  animation: fresh-pulse 200ms ease-out;
+}
+.fresh-pulse.degraded {
+  --pulse-peak: 0.45;
+}
+@keyframes fresh-pulse {
+  from {
+    opacity: var(--pulse-peak);
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+/* Live/Still toggle: explicit 44pt touch-target floor */
+.mode-toggle {
+  min-width: 44px;
+  min-height: 44px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .track-ghost {
+    transition: none;
+  }
+  .track-outline.reading .core {
+    animation: none;
+  }
+}

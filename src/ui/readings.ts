@@ -1,7 +1,9 @@
-import type { DetectedCard } from "../model";
+import type { Card } from "../model";
 
-export function reading(card: DetectedCard): string {
-  const { count, color, shape, fill } = card.card;
+// One card's reading as words. Takes the bare Card so the still path
+// (DetectedCard.card) and the live path (Track.reading) share it.
+export function reading(card: Card): string {
+  const { count, color, shape, fill } = card;
   const plural = count > 1 ? "s" : "";
   return `${count} ${fill} ${color} ${shape}${plural}`;
 }

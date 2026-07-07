@@ -3,7 +3,9 @@ import type { Quad } from "../model";
 import {
   SET_LINE_CASING,
   SET_LINE_COLORS,
+  SET_LINE_DASH,
   setLineStyle,
+  setLineWeights,
   triangleFor,
 } from "./set-lines";
 
@@ -38,6 +40,12 @@ describe("setLineStyle", () => {
 
   test("casing color is the shared dark casing", () => {
     expect(SET_LINE_CASING).toBe("#0a1420");
+  });
+
+  test("shares the dash pattern and weights with the live path", () => {
+    expect(SET_LINE_DASH).toBe("28 18");
+    expect(setLineWeights(false)).toEqual({ coreWidth: 8, casingWidth: 16 });
+    expect(setLineWeights(true)).toEqual({ coreWidth: 12, casingWidth: 20 });
   });
 });
 
