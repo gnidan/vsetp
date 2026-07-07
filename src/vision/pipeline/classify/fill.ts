@@ -1,4 +1,5 @@
 import type { Fill } from "../../../model";
+import { BORDER_RING } from "../../adapter";
 import type { SymbolRegion } from "../../adapter";
 import { erodeMask, polygonArea, polygonMask } from "../regions";
 import { rgbAt, saturationOf, whiteBalance } from "./pixels";
@@ -66,7 +67,6 @@ const STRIPED_MAX_LUMA_RATIO = 1.05;
 const STRIPED_MAX_MEAN_LUMA_RATIO = 0.98;
 // fraction of the raster edge treated as known-white card border
 // (mirrors whiteBalance's reference ring)
-const BORDER_RING = 0.05;
 
 function borderLuma(
   raster: ImageData,
