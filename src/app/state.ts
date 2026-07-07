@@ -54,6 +54,10 @@ export type Screen =
       // slow-cadence re-announce counter for the empty live view;
       // bumped by Session's nudge timer (see announcementFor)
       announceTick: number;
+      // transient feedback confirmation ("Marked correct." etc.),
+      // appended to the live announcement and cleared by the next
+      // live update
+      lastConfirmation: string | null;
     };
 
 // Graduated spoiler ladder: what the results screen may disclose.
@@ -84,7 +88,8 @@ export type AppEvent =
   | { type: "live-update-received"; tracks: Track[]; at: number }
   | { type: "live-left" }
   | { type: "live-degraded"; degraded: boolean }
-  | { type: "live-nudge" };
+  | { type: "live-nudge" }
+  | { type: "mark-confirmed"; text: string };
 
 export function initialState(): AppState {
   return {
@@ -168,6 +173,7 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
             emptySince: event.at,
             degraded: false,
             announceTick: 0,
+            lastConfirmation: null,
           }
         : screen;
     case "live-update-received": {
@@ -202,6 +208,9 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
           .length,
         emptySince:
           event.tracks.length > 0 ? null : (screen.emptySince ?? event.at),
+        // confirmations are one-update transients: the next live
+        // render sweep clears them
+        lastConfirmation: null,
       };
     }
     case "live-left":
@@ -213,6 +222,10 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
     case "live-nudge":
       return screen.phase === "live"
         ? { ...screen, announceTick: screen.announceTick + 1 }
+        : screen;
+    case "mark-confirmed":
+      return screen.phase === "live"
+        ? { ...screen, lastConfirmation: event.text }
         : screen;
     default:
       return screen;

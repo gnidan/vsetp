@@ -377,6 +377,7 @@ describe("reduce (live phase)", () => {
       emptySince: 100,
       degraded: false,
       announceTick: 0,
+      lastConfirmation: null,
     });
   });
 
@@ -567,5 +568,27 @@ describe("reduce (live phase)", () => {
     state = updated(state, SET_TRACKS, 1);
     state = reduce(state, { type: "live-left" });
     expect(state.reveal).toBe("sets");
+  });
+
+  test("mark-confirmed stores the confirmation text in live only", () => {
+    const state = reduce(liveState(), {
+      type: "mark-confirmed",
+      text: "Marked correct.",
+    });
+    expect(live(state).lastConfirmation).toBe("Marked correct.");
+    const idle = reduce(initialState(), {
+      type: "mark-confirmed",
+      text: "Marked correct.",
+    });
+    expect(idle.screen).toEqual({ phase: "idle", notice: null });
+  });
+
+  test("the next live update clears the confirmation", () => {
+    let state = reduce(liveState(), {
+      type: "mark-confirmed",
+      text: "Marked correct.",
+    });
+    state = updated(state, SET_TRACKS, 50);
+    expect(live(state).lastConfirmation).toBeNull();
   });
 });

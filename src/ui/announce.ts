@@ -73,36 +73,43 @@ export function announcementFor(state: AppState): string {
       return edge ? `${summary} ${edge}` : summary;
     }
     case "live": {
-      const { tracks, liveSets, presence, lockedCount } = screen;
-      const { emptySince, updatedAt } = screen;
-      // aim-by-audio: prolonged empty view speaks in EVERY reveal
-      // mode; the clock is the update stream's own timestamps, so
-      // the string flips exactly once when the grace period lapses
-      if (
-        tracks.length === 0 &&
-        emptySince !== null &&
-        updatedAt !== null &&
-        updatedAt - emptySince >= NO_CARDS_GRACE_MS
-      ) {
-        // aria-live regions only re-speak when the TEXT changes, so
-        // a persistently-empty view would announce exactly once.
-        // Session bumps announceTick every LIVE_NUDGE_MS while empty;
-        // alternating an invisible trailing non-breaking space makes
-        // the string differ tick to tick, re-announcing the guidance
-        // without altering what a screen reader actually says.
-        return screen.announceTick % 2 === 1
-          ? "No cards in view.\u00a0"
-          : "No cards in view.";
-      }
-      // quiet until the first card locks ("{n} cards read." fires
-      // when lockedCount first reaches n > 0)
-      if (lockedCount === 0) return "";
-      return revealSummary(
-        state.reveal,
-        lockedCount,
-        presence.shown,
-        liveSets.length,
-      );
+      const base = liveText(screen, state.reveal);
+      // feedback confirmations are transient (cleared by the next
+      // live update) and ride along with whatever the view says
+      const confirmation = screen.lastConfirmation;
+      if (!confirmation) return base;
+      return base ? `${base} ${confirmation}` : confirmation;
     }
   }
+}
+
+function liveText(
+  screen: Extract<AppState["screen"], { phase: "live" }>,
+  reveal: RevealMode,
+): string {
+  const { tracks, liveSets, presence, lockedCount } = screen;
+  const { emptySince, updatedAt } = screen;
+  // aim-by-audio: prolonged empty view speaks in EVERY reveal
+  // mode; the clock is the update stream's own timestamps, so
+  // the string flips exactly once when the grace period lapses
+  if (
+    tracks.length === 0 &&
+    emptySince !== null &&
+    updatedAt !== null &&
+    updatedAt - emptySince >= NO_CARDS_GRACE_MS
+  ) {
+    // aria-live regions only re-speak when the TEXT changes, so
+    // a persistently-empty view would announce exactly once.
+    // Session bumps announceTick every LIVE_NUDGE_MS while empty;
+    // alternating an invisible trailing non-breaking space makes
+    // the string differ tick to tick, re-announcing the guidance
+    // without altering what a screen reader actually says.
+    return screen.announceTick % 2 === 1
+      ? "No cards in view.\u00a0"
+      : "No cards in view.";
+  }
+  // quiet until the first card locks ("{n} cards read." fires
+  // when lockedCount first reaches n > 0)
+  if (lockedCount === 0) return "";
+  return revealSummary(reveal, lockedCount, presence.shown, liveSets.length);
 }

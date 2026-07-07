@@ -304,6 +304,29 @@ describe("createLiveDriver", () => {
     expect(rep.cancel).toHaveBeenCalledTimes(1);
   });
 
+  test("a late update after a stall never reaches onUpdate", async () => {
+    const { deps, fc, sched, rep, setNow } = makeDeps();
+    const driver = createLiveDriver(deps);
+    await driver.start();
+    setNow(0);
+    sched.fire();
+    setNow(STALL_MS + 1);
+    rep.fire(); // stall reported; the driver stops dispatching
+    expect(deps.onStall).toHaveBeenCalledTimes(1);
+    fc.onUpdate?.(updateOf(1));
+    expect(deps.onUpdate).not.toHaveBeenCalled();
+    expect(deps.onDegraded).not.toHaveBeenCalled();
+  });
+
+  test("a late update after stop() never reaches onUpdate", async () => {
+    const { deps, fc } = makeDeps();
+    const driver = createLiveDriver(deps);
+    await driver.start();
+    await driver.stop();
+    fc.onUpdate?.(updateOf(1));
+    expect(deps.onUpdate).not.toHaveBeenCalled();
+  });
+
   test("stall timer does not fire after stop()", async () => {
     const { deps, sched, rep, setNow } = makeDeps();
     const driver = createLiveDriver(deps);

@@ -91,6 +91,10 @@ export function createLiveDriver(deps: LiveDriverDeps): LiveDriver {
   }
 
   function handleUpdate(update: LiveUpdate): void {
+    // a stalled or stopping session dispatches nothing: a late
+    // worker update must not resurrect UI state after onStall or
+    // race a stop() already in progress
+    if (!running) return;
     lastSignalAt = deps.now();
     const result = recordUpdate(ladder, deps.now());
     ladder = result.state;

@@ -339,6 +339,7 @@ function liveState(
       emptySince: null,
       degraded: false,
       announceTick: 0,
+      lastConfirmation: null,
       ...over,
     },
     reveal,
@@ -500,5 +501,32 @@ describe("announcementFor (live)", () => {
     });
     expect(announcementFor(before)).toBe("No cards in view.");
     expect(announcementFor(after)).toBe(announcementFor(before));
+  });
+
+  test("a mark confirmation is appended to the live summary", () => {
+    const state = liveState({ lastConfirmation: "Marked correct." });
+    expect(announcementFor(state)).toBe("1 card read. Marked correct.");
+  });
+
+  test("a mark confirmation speaks alone while the view is quiet", () => {
+    const state = liveState({
+      tracks: [],
+      lockedCount: 0,
+      lastConfirmation: "Marked wrong reading.",
+    });
+    expect(announcementFor(state)).toBe("Marked wrong reading.");
+  });
+
+  test("a mark confirmation joins the no-cards guidance", () => {
+    const state = liveState({
+      tracks: [],
+      lockedCount: 0,
+      emptySince: 0,
+      updatedAt: NO_CARDS_GRACE_MS,
+      lastConfirmation: "Looking for a card there.",
+    });
+    expect(announcementFor(state)).toBe(
+      "No cards in view. Looking for a card there.",
+    );
   });
 });
