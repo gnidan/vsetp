@@ -54,6 +54,11 @@ function engineFailureMessage(error: Error): string {
     case "WorkerDiedError":
     case "AnalyzeTimeoutError":
       return "The card reader stopped responding.";
+    case "LiveSessionError":
+      // the serialized mode toggle should make this unreachable; if
+      // a race slips through anyway, the raw internal message ("live
+      // already active") must not be what the user sees
+      return "The live view hit a snag while switching modes.";
     default:
       return error.message;
   }
@@ -139,8 +144,10 @@ function Session({
     // (sticky fatal), so StrictMode's mount-cleanup-remount must get
     // a fresh client each time. spec: eager init overlaps the
     // download with framing — EXCEPT on a metered connection
-    // (saveData), where the ~10MB fetch waits for capture intent
-    // (startEngine is idempotent; onCapture calls it again).
+    // (saveData), where the ~10MB fetch waits for explicit intent.
+    // Enabling the camera is that intent: the ambient live session's
+    // startLive() runs init itself. The camera-less picker path gets
+    // its init from onCapture's startEngine (init is idempotent).
     const client = createWorkerClient();
     clientRef.current = client;
     const connection = (navigator as { connection?: { saveData?: boolean } })
@@ -162,11 +169,21 @@ function Session({
     mode === "live" &&
     camera === "live" &&
     (state.screen.phase === "idle" || state.screen.phase === "live");
+  // Serialization spine (spec: the mode toggle is SERIALIZED): the
+  // tail of every start/stop ever chained. A new live stretch starts
+  // only after the previous stretch's stop — including its awaited
+  // stopLive round-trip — settles, so a rapid Still→Live can never
+  // hit the client's "live already active" guard.
+  const liveChainRef = useRef<Promise<void>>(Promise.resolve());
+  // in-flight flag covering BOTH toggle directions; the toggle
+  // button(s) are disabled while it is set
+  const [modeSwitching, setModeSwitching] = useState(false);
   useEffect(() => {
     if (!wantLive) return;
     const client = clientRef.current;
     const video = videoRef.current;
     if (!client || !video) return;
+    let torndown = false;
     // driver-per-effect-run (the client-per-mount precedent): a
     // StrictMode replay stops the first driver in cleanup and starts
     // a fresh one, and the disposed first client's rejections are
@@ -205,21 +222,47 @@ function Session({
       schedule: createSchedule(video),
       now: () => performance.now(),
     });
-    dispatch({ type: "live-entered", at: Date.now() });
-    const started = driver.start().catch((error: Error) => {
-      if (error instanceof DisposedError) return; // mount lifecycle
-      dispatch({
-        type: "engine-failed",
-        message: engineFailureMessage(error),
-      });
+    const started = liveChainRef.current.then(() => {
+      // torn down before the chain reached us (rapid toggling or a
+      // StrictMode replay): never enter, never start
+      if (torndown) return;
+      dispatch({ type: "live-entered", at: Date.now() });
+      return driver.start();
     });
+    started
+      .then(() => setModeSwitching(false))
+      .catch((error: Error) => {
+        setModeSwitching(false);
+        if (error instanceof DisposedError) return; // mount lifecycle
+        dispatch({
+          type: "engine-failed",
+          message: engineFailureMessage(error),
+        });
+      });
     return () => {
-      // start() may still be in flight (StrictMode replay): chain the
-      // stop behind it so the started session is always torn down
-      void started.then(() => driver.stop()).catch(() => {});
-      dispatch({ type: "live-left" });
+      torndown = true;
+      // Chain the stop behind the (possibly in-flight) start so a
+      // started session is always torn down — and leave the live
+      // phase only once the stop has fully settled: the still
+      // shutter appears exactly when analyze() is safe again, so a
+      // quick capture can't race a not-yet-stopped live session.
+      const stopped = started
+        .catch(() => {}) // a failed start still owes a stop
+        .then(() => driver.stop())
+        .catch(() => {})
+        .then(() => {
+          dispatch({ type: "live-left" });
+          setModeSwitching(false);
+        });
+      liveChainRef.current = stopped;
     };
   }, [wantLive, videoRef, feedbackLog]);
+
+  // a toggle whose driver can never run (the camera dropped while
+  // the switch was in flight) must not leave the flag stuck
+  useEffect(() => {
+    if (mode === "live" && camera !== "live") setModeSwitching(false);
+  }, [mode, camera]);
 
   // sheets belong to the live stage: leaving it (mode toggle, stall,
   // camera drop) closes any open one
@@ -340,6 +383,22 @@ function Session({
     analyzeCapture(client, capture);
   }
 
+  // Live ⇄ Still, serialized. To Still: the driver effect's cleanup
+  // awaits the full stop before live-left reveals the shutter. To
+  // Live: the effect's start chains behind that same stop. Both
+  // directions hold modeSwitching until their transition settles.
+  function toggleToStill() {
+    if (modeSwitching) return;
+    setModeSwitching(true);
+    setMode("still");
+  }
+
+  function toggleToLive() {
+    if (modeSwitching || state.screen.phase !== "idle") return;
+    setModeSwitching(true);
+    setMode("live");
+  }
+
   // A tap on the live stage, already hit-tested against the rendered
   // elements (LiveView): one track → card sheet; overlap → chooser;
   // open table → the explicit missed-card confirmation beat; an
@@ -456,6 +515,17 @@ function Session({
             dispatch({ type: "capture-failed", message })
           }
         />
+        {/* the way back to Live from still mode; only an idle screen
+            may re-enter (live-entered is phase-gated the same way) */}
+        {mode === "still" && screen.phase === "idle" && camera === "live" && (
+          <button
+            className="mode-toggle live-toggle"
+            disabled={modeSwitching}
+            onClick={toggleToLive}
+          >
+            Live
+          </button>
+        )}
         {screen.phase === "analyzing" && (
           <AnalysisView
             capture={screen.capture}
@@ -559,10 +629,10 @@ function Session({
                 }
                 selected={reveal === "sets" ? screen.selected : null}
                 reveal={reveal}
-                toggleDisabled={false}
+                toggleDisabled={modeSwitching}
                 onSelect={(id) => dispatch({ type: "select-set", id })}
                 onReveal={(m) => dispatch({ type: "set-reveal", mode: m })}
-                onToggleMode={() => setMode("still")}
+                onToggleMode={toggleToStill}
                 onExport={exportFeedbackLog}
               />
             </div>

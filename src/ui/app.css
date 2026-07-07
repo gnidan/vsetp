@@ -480,6 +480,20 @@ body {
 .mode-toggle:disabled {
   opacity: 0.5;
 }
+/* still mode's way back to Live: on the stage, clear of the
+   bottom-center shutter and the bottom-right picker */
+.live-toggle {
+  position: absolute;
+  bottom: 1.5rem;
+  left: calc(env(safe-area-inset-left) + 1rem);
+  z-index: 2;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.4);
+  color: #f2f5f9;
+  padding: 0.45rem 0.9rem;
+  font-size: 1rem;
+}
 @media (prefers-reduced-motion: reduce) {
   .track-ghost,
   .track-hit {

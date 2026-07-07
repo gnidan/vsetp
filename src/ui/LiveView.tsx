@@ -152,7 +152,7 @@ export function LiveView({
             const size = Math.max(28, MIN_HIT_CLIENT_PX / t.scale);
             return (
               <div
-                key={`${at.x},${at.y}`}
+                key={index}
                 className="missed-marker"
                 data-missed-marker={index}
                 style={{
