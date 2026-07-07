@@ -15,9 +15,7 @@ export function setIdentityOf(cards: [Card, Card, Card]): SetIdentity {
 // involve different physical cards and must render and select
 // independently. First occurrence keeps the bare identity; later
 // ones get a deterministic #n suffix in input order.
-export function disambiguateSetIdentities(
-  raw: SetIdentity[],
-): SetIdentity[] {
+export function disambiguateSetIdentities(raw: SetIdentity[]): SetIdentity[] {
   const seen = new Map<SetIdentity, number>();
   return raw.map((id) => {
     const n = (seen.get(id) ?? 0) + 1;

@@ -129,7 +129,11 @@ function Session({
 
   // revoke the previous capture's display URL once replaced
   useEffect(() => {
-    const current = state.screen.phase === "idle" ? null : state.screen.capture;
+    const { screen } = state;
+    const current =
+      screen.phase === "analyzing" || screen.phase === "results"
+        ? screen.capture
+        : null;
     if (lastCapture.current && lastCapture.current !== current) {
       lastCapture.current.revoke();
     }

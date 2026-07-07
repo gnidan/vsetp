@@ -1,12 +1,13 @@
 import { describe, expect, test } from "vitest";
-import type { Card, FrameAnalysis } from "../model";
-import { cardFromKey, cardId, frameId } from "../model";
+import type { Card, FrameAnalysis, Track } from "../model";
+import { cardFromKey, cardId, frameId, trackId } from "../model";
 import type { CardKey } from "../model";
 import type { AnalyzedSet } from "../app/highlights";
-import type { AppState } from "../app/state";
+import type { LiveSet } from "../app/live-sets";
+import type { AppState, RevealMode } from "../app/state";
 import { initialState } from "../app/state";
 import type { SetIdentity } from "../set/identity";
-import { announcementFor } from "./announce";
+import { NO_CARDS_GRACE_MS, announcementFor } from "./announce";
 
 // announcementFor reads only counts; any set shape will do
 const SOME_SET: AnalyzedSet = {
@@ -280,5 +281,189 @@ describe("announcementFor", () => {
     expect(announcementFor(state)).toBe(
       "No cards detected. Try filling the frame with the spread.",
     );
+  });
+});
+
+type LiveScreen = Extract<AppState["screen"], { phase: "live" }>;
+
+function lockedTrack(id: number): Track {
+  return {
+    trackId: trackId(id),
+    quad: [
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 5, y: 8 },
+      { x: 0, y: 8 },
+    ],
+    state: "locked",
+    reading: cardFromKey("1-red-oval-solid" as CardKey),
+  };
+}
+
+const LIVE_SET: LiveSet = {
+  id: "1-red-oval-solid|2-red-oval-solid|3-red-oval-solid" as SetIdentity,
+  trackIds: [trackId(0), trackId(1), trackId(2)],
+};
+
+function liveState(
+  over: Partial<LiveScreen> = {},
+  reveal: RevealMode = "cards",
+): AppState {
+  return {
+    engine: { status: "ready" },
+    screen: {
+      phase: "live",
+      tracks: [lockedTrack(0)],
+      liveSets: [],
+      selected: null,
+      updatedAt: 1000,
+      updateCount: 1,
+      presence: { shown: false, candidate: false, streak: 1 },
+      lockedCount: 1,
+      emptySince: null,
+      degraded: false,
+      ...over,
+    },
+    reveal,
+  };
+}
+
+describe("announcementFor (live)", () => {
+  test("cards reveal reports the locked-card count", () => {
+    const state = liveState({
+      tracks: [lockedTrack(0), lockedTrack(1), lockedTrack(2)],
+      lockedCount: 3,
+    });
+    expect(announcementFor(state)).toBe("3 cards read.");
+  });
+
+  test("cards reveal singularizes one card", () => {
+    expect(announcementFor(liveState())).toBe("1 card read.");
+  });
+
+  test("presence reveal speaks the DEBOUNCED value, not liveSets", () => {
+    // liveSets already has a set but the debounce has not agreed
+    // yet: presence must stay silent about it (spoiler parity)
+    const state = liveState(
+      {
+        tracks: [lockedTrack(0), lockedTrack(1), lockedTrack(2)],
+        lockedCount: 3,
+        liveSets: [LIVE_SET],
+        selected: LIVE_SET.id,
+        presence: { shown: false, candidate: true, streak: 2 },
+      },
+      "presence",
+    );
+    expect(announcementFor(state)).toBe("3 cards read. No set here.");
+  });
+
+  test("presence reveal announces a debounced set", () => {
+    const state = liveState(
+      {
+        tracks: [lockedTrack(0), lockedTrack(1), lockedTrack(2)],
+        lockedCount: 3,
+        liveSets: [LIVE_SET],
+        selected: LIVE_SET.id,
+        presence: { shown: true, candidate: true, streak: 5 },
+      },
+      "presence",
+    );
+    expect(announcementFor(state)).toBe("3 cards read. A set is present.");
+  });
+
+  test("sets reveal reports sets and cards", () => {
+    const state = liveState(
+      {
+        tracks: Array.from({ length: 9 }, (_, i) => lockedTrack(i)),
+        lockedCount: 9,
+        liveSets: [LIVE_SET],
+        selected: LIVE_SET.id,
+      },
+      "sets",
+    );
+    expect(announcementFor(state)).toBe("1 set found. 9 cards read.");
+  });
+
+  test("sets reveal without sets reports the card count", () => {
+    const state = liveState(
+      {
+        tracks: Array.from({ length: 6 }, (_, i) => lockedTrack(i)),
+        lockedCount: 6,
+      },
+      "sets",
+    );
+    expect(announcementFor(state)).toBe("No set found among the 6 cards.");
+  });
+
+  test("zero tracks past the grace period speaks in every mode", () => {
+    for (const reveal of ["cards", "presence", "sets"] as const) {
+      const state = liveState(
+        {
+          tracks: [],
+          lockedCount: 0,
+          emptySince: 0,
+          updatedAt: NO_CARDS_GRACE_MS,
+        },
+        reveal,
+      );
+      expect(announcementFor(state)).toBe("No cards in view.");
+    }
+  });
+
+  test("zero tracks within the grace period stays quiet", () => {
+    const state = liveState({
+      tracks: [],
+      lockedCount: 0,
+      emptySince: 0,
+      updatedAt: NO_CARDS_GRACE_MS - 1,
+    });
+    expect(announcementFor(state)).toBe("");
+  });
+
+  test("tracks present but none locked stays quiet", () => {
+    const tentative: Track = { ...lockedTrack(0), state: "tentative" };
+    const state = liveState({ tracks: [tentative], lockedCount: 0 });
+    expect(announcementFor(state)).toBe("");
+  });
+
+  test("strings are stable across updatedAt/updateCount churn", () => {
+    for (const reveal of ["cards", "presence", "sets"] as const) {
+      const screen: Partial<LiveScreen> = {
+        tracks: [lockedTrack(0), lockedTrack(1), lockedTrack(2)],
+        lockedCount: 3,
+        liveSets: [LIVE_SET],
+        selected: LIVE_SET.id,
+        presence: { shown: true, candidate: true, streak: 7 },
+      };
+      const before = liveState(
+        { ...screen, updatedAt: 5000, updateCount: 41 },
+        reveal,
+      );
+      const after = liveState(
+        { ...screen, updatedAt: 5033, updateCount: 42 },
+        reveal,
+      );
+      expect(announcementFor(after)).toBe(announcementFor(before));
+    }
+  });
+
+  test("no-cards message is stable across further churn too", () => {
+    const screen: Partial<LiveScreen> = {
+      tracks: [],
+      lockedCount: 0,
+      emptySince: 0,
+    };
+    const before = liveState({
+      ...screen,
+      updatedAt: NO_CARDS_GRACE_MS + 100,
+      updateCount: 41,
+    });
+    const after = liveState({
+      ...screen,
+      updatedAt: NO_CARDS_GRACE_MS + 133,
+      updateCount: 42,
+    });
+    expect(announcementFor(before)).toBe("No cards in view.");
+    expect(announcementFor(after)).toBe(announcementFor(before));
   });
 });

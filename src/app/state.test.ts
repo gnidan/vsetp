@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { Card, FrameAnalysis } from "../model";
-import { cardFromKey, cardId, frameId } from "../model";
+import type { Card, FrameAnalysis, Track, TrackState } from "../model";
+import { cardFromKey, cardId, frameId, trackId } from "../model";
 import type { CardKey } from "../model";
 import type { SetIdentity } from "../set/identity";
 import type { Capture } from "./capture";
-import { initialState, reduce } from "./state";
+import type { AppState } from "./state";
+import { PRESENCE_DEBOUNCE_UPDATES, initialState, reduce } from "./state";
 
 function captureOf(id: number): Capture {
   return {
@@ -319,5 +320,220 @@ describe("reduce", () => {
     });
     state = reduce(state, { type: "set-reveal", mode: "sets" });
     expect(state.screen.phase).toBe("results");
+  });
+});
+
+function trackOf(
+  id: number,
+  key: string | null,
+  state: TrackState = "locked",
+): Track {
+  const base = id * 10;
+  return {
+    trackId: trackId(id),
+    quad: [
+      { x: base, y: 0 },
+      { x: base + 5, y: 0 },
+      { x: base + 5, y: 8 },
+      { x: base, y: 8 },
+    ],
+    state,
+    ...(key === null ? {} : { reading: cardFromKey(key as CardKey) }),
+  };
+}
+
+const SET_TRACKS = SET_KEYS.map((key, i) => trackOf(i, key));
+const OTHER_SET_TRACKS = OTHER_SET_KEYS.map((key, i) => trackOf(i + 3, key));
+
+function liveState(at = 0): AppState {
+  return reduce(initialState(), { type: "live-entered", at });
+}
+
+function updated(state: AppState, tracks: Track[], at = 1): AppState {
+  return reduce(state, { type: "live-update-received", tracks, at });
+}
+
+// assert-and-narrow: vacuous-guard-proof access to the live screen
+function live(state: AppState): Extract<AppState["screen"], { phase: "live" }> {
+  const { screen } = state;
+  if (screen.phase !== "live") {
+    throw new Error(`expected live phase, got ${screen.phase}`);
+  }
+  return screen;
+}
+
+describe("reduce (live phase)", () => {
+  test("live-entered from idle starts a fresh live screen", () => {
+    const state = liveState(100);
+    expect(state.screen).toEqual({
+      phase: "live",
+      tracks: [],
+      liveSets: [],
+      selected: null,
+      updatedAt: null,
+      updateCount: 0,
+      presence: { shown: false, candidate: false, streak: 0 },
+      lockedCount: 0,
+      emptySince: 100,
+      degraded: false,
+    });
+  });
+
+  test("live-entered outside idle is ignored", () => {
+    let state = reduce(initialState(), {
+      type: "captured",
+      capture: captureOf(1),
+    });
+    state = reduce(state, { type: "live-entered", at: 5 });
+    expect(state.screen.phase).toBe("analyzing");
+  });
+
+  test("live-update-received recomputes sets, counts, and clock", () => {
+    const screen = live(updated(liveState(), SET_TRACKS, 250));
+    expect(screen.liveSets.map((s) => s.id)).toEqual([SET_ID]);
+    expect(screen.selected).toBe(SET_ID);
+    expect(screen.lockedCount).toBe(3);
+    expect(screen.updatedAt).toBe(250);
+    expect(screen.updateCount).toBe(1);
+  });
+
+  test("live-update-received outside live is ignored", () => {
+    const state = reduce(initialState(), {
+      type: "live-update-received",
+      tracks: SET_TRACKS,
+      at: 1,
+    });
+    expect(state.screen.phase).toBe("idle");
+  });
+
+  test("lockedCount counts only locked tracks", () => {
+    const screen = live(
+      updated(liveState(), [
+        trackOf(0, SET_KEYS[0]),
+        trackOf(1, SET_KEYS[1], "reading"),
+        trackOf(2, SET_KEYS[2], "uncertain-locked"),
+        trackOf(3, null, "tentative"),
+      ]),
+    );
+    expect(screen.lockedCount).toBe(1);
+  });
+
+  test("selection keeps its identity while it survives updates", () => {
+    let state = updated(liveState(), [...SET_TRACKS, ...OTHER_SET_TRACKS], 1);
+    state = reduce(state, { type: "select-set", id: OTHER_SET_ID });
+    expect(live(state).selected).toBe(OTHER_SET_ID);
+    state = updated(state, [...OTHER_SET_TRACKS, ...SET_TRACKS], 2);
+    expect(live(state).selected).toBe(OTHER_SET_ID);
+  });
+
+  test("selection lost falls back to first, then null", () => {
+    let state = updated(liveState(), [...SET_TRACKS, ...OTHER_SET_TRACKS], 1);
+    state = reduce(state, { type: "select-set", id: OTHER_SET_ID });
+    state = updated(state, SET_TRACKS, 2);
+    expect(live(state).selected).toBe(SET_ID);
+    state = updated(state, [], 3);
+    expect(live(state).selected).toBeNull();
+  });
+
+  test("presence shows only after the debounce streak agrees", () => {
+    let state = liveState();
+    for (let i = 1; i < PRESENCE_DEBOUNCE_UPDATES; i++) {
+      state = updated(state, SET_TRACKS, i);
+      expect(live(state).presence).toEqual({
+        shown: false,
+        candidate: true,
+        streak: i,
+      });
+    }
+    state = updated(state, SET_TRACKS, PRESENCE_DEBOUNCE_UPDATES);
+    expect(live(state).presence).toEqual({
+      shown: true,
+      candidate: true,
+      streak: PRESENCE_DEBOUNCE_UPDATES,
+    });
+  });
+
+  test("a flicker resets the streak without flipping shown", () => {
+    let state = liveState();
+    for (let i = 1; i < PRESENCE_DEBOUNCE_UPDATES; i++) {
+      state = updated(state, SET_TRACKS, i);
+    }
+    state = updated(state, [], PRESENCE_DEBOUNCE_UPDATES);
+    expect(live(state).presence).toEqual({
+      shown: false,
+      candidate: false,
+      streak: 1,
+    });
+  });
+
+  test("agreement with what is shown never flips it", () => {
+    let state = liveState();
+    for (let i = 1; i <= PRESENCE_DEBOUNCE_UPDATES + 2; i++) {
+      state = updated(state, [], i);
+      expect(live(state).presence.shown).toBe(false);
+    }
+  });
+
+  test("shown flips back after a full absent streak", () => {
+    let state = liveState();
+    for (let i = 1; i <= PRESENCE_DEBOUNCE_UPDATES; i++) {
+      state = updated(state, SET_TRACKS, i);
+    }
+    for (let i = 1; i <= PRESENCE_DEBOUNCE_UPDATES; i++) {
+      state = updated(state, [], PRESENCE_DEBOUNCE_UPDATES + i);
+      expect(live(state).presence.shown).toBe(i < PRESENCE_DEBOUNCE_UPDATES);
+    }
+  });
+
+  test("emptySince keeps the earliest zero-track timestamp", () => {
+    let state = liveState(10);
+    state = updated(state, [], 20);
+    expect(live(state).emptySince).toBe(10);
+    state = updated(state, SET_TRACKS, 30);
+    expect(live(state).emptySince).toBeNull();
+    state = updated(state, [], 40);
+    state = updated(state, [], 50);
+    expect(live(state).emptySince).toBe(40);
+  });
+
+  test("live-left returns to a clean idle", () => {
+    const state = reduce(liveState(), { type: "live-left" });
+    expect(state.screen).toEqual({ phase: "idle", notice: null });
+  });
+
+  test("live-left outside live is ignored", () => {
+    const state = reduce(initialState(), {
+      type: "captured",
+      capture: captureOf(1),
+    });
+    expect(reduce(state, { type: "live-left" }).screen.phase).toBe("analyzing");
+  });
+
+  test("live-degraded toggles the flag in live only", () => {
+    let state = reduce(liveState(), { type: "live-degraded", degraded: true });
+    expect(live(state).degraded).toBe(true);
+    state = reduce(state, { type: "live-degraded", degraded: false });
+    expect(live(state).degraded).toBe(false);
+    const idle = reduce(initialState(), {
+      type: "live-degraded",
+      degraded: true,
+    });
+    expect(idle.screen).toEqual({ phase: "idle", notice: null });
+  });
+
+  test("captured transitions live to analyzing (total reducer)", () => {
+    const state = reduce(liveState(), {
+      type: "captured",
+      capture: captureOf(9),
+    });
+    expect(state.screen.phase).toBe("analyzing");
+  });
+
+  test("reveal is untouched by live transitions", () => {
+    let state = reduce(initialState(), { type: "set-reveal", mode: "sets" });
+    state = reduce(state, { type: "live-entered", at: 0 });
+    state = updated(state, SET_TRACKS, 1);
+    state = reduce(state, { type: "live-left" });
+    expect(state.reveal).toBe("sets");
   });
 });

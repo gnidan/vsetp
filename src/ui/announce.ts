@@ -1,8 +1,33 @@
-import type { AppState } from "../app/state";
+import type { AppState, RevealMode } from "../app/state";
 import { edgeNotice } from "../app/guidance";
+
+// How long the live view may sit at zero tracks before the region
+// speaks "No cards in view." in every reveal mode (aim-by-audio).
+export const NO_CARDS_GRACE_MS = 4000;
 
 export function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+// Spoiler parity: below "sets" reveal, announcements must not leak
+// set information beyond what the mode discloses. Shared between
+// the results and live screens so their strings can never drift;
+// `hasSet` is the presence-mode signal (results: sets > 0; live:
+// the DEBOUNCED presence.shown, never raw liveSets).
+function revealSummary(
+  reveal: RevealMode,
+  cards: number,
+  hasSet: boolean,
+  sets: number,
+): string {
+  return reveal === "cards"
+    ? `${plural(cards, "card")} read.`
+    : reveal === "presence"
+      ? `${plural(cards, "card")} read. ` +
+        (hasSet ? "A set is present." : "No set here.")
+      : sets === 0
+        ? `No set found among the ${plural(cards, "card")}.`
+        : `${plural(sets, "set")} found. ${plural(cards, "card")} read.`;
 }
 
 function engineText(engine: AppState["engine"]): string | null {
@@ -34,22 +59,36 @@ export function announcementFor(state: AppState): string {
     case "results": {
       const sets = screen.sets.length;
       const cards = screen.analysis.cards.length;
-      // Spoiler parity: below "sets" reveal, announcements must not
-      // leak set information beyond what the mode discloses.
       const summary =
         cards === 0
           ? "No cards detected. Try filling the frame with the spread."
-          : state.reveal === "cards"
-            ? `${plural(cards, "card")} read.`
-            : state.reveal === "presence"
-              ? `${plural(cards, "card")} read. ` +
-                (sets > 0 ? "A set is present." : "No set here.")
-              : sets === 0
-                ? `No set found among the ${plural(cards, "card")}.`
-                : `${plural(sets, "set")} found. ` +
-                  `${plural(cards, "card")} read.`;
+          : revealSummary(state.reveal, cards, sets > 0, sets);
       const edge = edgeNotice(screen.analysis);
       return edge ? `${summary} ${edge}` : summary;
+    }
+    case "live": {
+      const { tracks, liveSets, presence, lockedCount } = screen;
+      const { emptySince, updatedAt } = screen;
+      // aim-by-audio: prolonged empty view speaks in EVERY reveal
+      // mode; the clock is the update stream's own timestamps, so
+      // the string flips exactly once when the grace period lapses
+      if (
+        tracks.length === 0 &&
+        emptySince !== null &&
+        updatedAt !== null &&
+        updatedAt - emptySince >= NO_CARDS_GRACE_MS
+      ) {
+        return "No cards in view.";
+      }
+      // quiet until the first card locks ("{n} cards read." fires
+      // when lockedCount first reaches n > 0)
+      if (lockedCount === 0) return "";
+      return revealSummary(
+        state.reveal,
+        lockedCount,
+        presence.shown,
+        liveSets.length,
+      );
     }
   }
 }

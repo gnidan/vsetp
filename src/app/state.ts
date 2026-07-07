@@ -1,10 +1,16 @@
-import type { FrameAnalysis, FrameId } from "../model";
+import type { FrameAnalysis, FrameId, Track } from "../model";
 import type { SetIdentity } from "../set/identity";
 import type { PipelineStage } from "../worker/protocol";
 import type { AnalyzedSet } from "./highlights";
 import type { Capture } from "./capture";
+import type { LiveSet } from "./live-sets";
 import { guidanceFor } from "./guidance";
 import { findSetsInAnalysis } from "./highlights";
+import { liveSetsOf } from "./live-sets";
+
+// Consecutive live updates that must agree before the displayed
+// presence signal flips (spec: presence debounce).
+export const PRESENCE_DEBOUNCE_UPDATES = 5;
 
 export type EngineState =
   | { status: "cold" }
@@ -28,6 +34,23 @@ export type Screen =
       analysis: FrameAnalysis;
       sets: AnalyzedSet[];
       selected: SetIdentity | null;
+    }
+  | {
+      phase: "live";
+      tracks: Track[];
+      liveSets: LiveSet[];
+      selected: SetIdentity | null;
+      updatedAt: number | null; // last live-update wall ms
+      updateCount: number;
+      presence: {
+        // debounced derived signal
+        shown: boolean; // what presence mode displays
+        candidate: boolean;
+        streak: number; // consecutive updates agreeing
+      };
+      lockedCount: number;
+      emptySince: number | null; // wall ms of zero-track start
+      degraded: boolean; // adaptation ladder below 768
     };
 
 // Graduated spoiler ladder: what the results screen may disclose.
@@ -53,7 +76,11 @@ export type AppEvent =
   | { type: "retake" }
   | { type: "reanalyze" }
   | { type: "select-set"; id: SetIdentity }
-  | { type: "set-reveal"; mode: RevealMode };
+  | { type: "set-reveal"; mode: RevealMode }
+  | { type: "live-entered"; at: number }
+  | { type: "live-update-received"; tracks: Track[]; at: number }
+  | { type: "live-left" }
+  | { type: "live-degraded"; degraded: boolean };
 
 export function initialState(): AppState {
   return {
@@ -116,8 +143,63 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
           }
         : screen;
     case "select-set":
-      return screen.phase === "results"
+      return screen.phase === "results" || screen.phase === "live"
         ? { ...screen, selected: event.id }
+        : screen;
+    case "live-entered":
+      return screen.phase === "idle"
+        ? {
+            phase: "live",
+            tracks: [],
+            liveSets: [],
+            selected: null,
+            updatedAt: null,
+            updateCount: 0,
+            presence: { shown: false, candidate: false, streak: 0 },
+            lockedCount: 0,
+            emptySince: event.at,
+            degraded: false,
+          }
+        : screen;
+    case "live-update-received": {
+      if (screen.phase !== "live") return screen;
+      const liveSets = liveSetsOf(event.tracks);
+      const selected =
+        screen.selected !== null &&
+        liveSets.some((set) => set.id === screen.selected)
+          ? screen.selected
+          : (liveSets[0]?.id ?? null);
+      // presence debounce: the displayed signal flips only after
+      // PRESENCE_DEBOUNCE_UPDATES consecutive updates agree
+      const candidate = liveSets.length > 0;
+      const streak =
+        candidate === screen.presence.candidate
+          ? screen.presence.streak + 1
+          : 1;
+      const shown =
+        streak >= PRESENCE_DEBOUNCE_UPDATES &&
+        candidate !== screen.presence.shown
+          ? candidate
+          : screen.presence.shown;
+      return {
+        ...screen,
+        tracks: event.tracks,
+        liveSets,
+        selected,
+        updatedAt: event.at,
+        updateCount: screen.updateCount + 1,
+        presence: { shown, candidate, streak },
+        lockedCount: event.tracks.filter((track) => track.state === "locked")
+          .length,
+        emptySince:
+          event.tracks.length > 0 ? null : (screen.emptySince ?? event.at),
+      };
+    }
+    case "live-left":
+      return screen.phase === "live" ? { phase: "idle", notice: null } : screen;
+    case "live-degraded":
+      return screen.phase === "live"
+        ? { ...screen, degraded: event.degraded }
         : screen;
     default:
       return screen;
