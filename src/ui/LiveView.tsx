@@ -21,6 +21,14 @@ export type StageTap =
   | { kind: "empty"; at: Point }
   | { kind: "marker"; at: Point };
 
+// An unresolved missed-card mark to render as a retryable glyph.
+// markedAt is the FeedbackLog entry's timestamp: a stable identity
+// that survives the marker list reshuffling as entries resolve.
+export interface MissedMarker {
+  at: Point; // frame coords
+  markedAt: number;
+}
+
 // The live stage overlay: track ghosts and set lines in live-frame
 // coordinates, glued over the provider's (already visible) video.
 // The wrapper math mirrors AnalysisView's, except the mapping is
@@ -46,7 +54,7 @@ export function LiveView({
   colorFor(id: SetIdentity): { color: string; dash: boolean };
   updateCount: number;
   degraded: boolean;
-  markers: Point[]; // unresolved missed-card positions (frame coords)
+  markers: MissedMarker[];
   onTap(tap: StageTap): void;
 }) {
   const { videoRef } = useCamera();
@@ -94,12 +102,14 @@ export function LiveView({
     const point = { x: event.clientX, y: event.clientY };
     const hits = document.elementsFromPoint(point.x, point.y);
     for (const element of hits) {
-      const marker = element
+      const markedAt = element
         .closest("[data-missed-marker]")
         ?.getAttribute("data-missed-marker");
-      if (marker != null) {
-        const at = markers[Number(marker)];
-        if (at) onTap({ kind: "marker", at });
+      if (markedAt != null) {
+        const marker = markers.find(
+          (candidate) => candidate.markedAt === Number(markedAt),
+        );
+        if (marker) onTap({ kind: "marker", at: marker.at });
         return;
       }
     }
@@ -146,15 +156,15 @@ export function LiveView({
               frameSize={frame}
             />
           )}
-          {markers.map((at, index) => {
+          {markers.map(({ at, markedAt }) => {
             // "couldn't read this one": renders until an roi-assist
             // track resolves the mark; a tap retries (once per tap)
             const size = Math.max(28, MIN_HIT_CLIENT_PX / t.scale);
             return (
               <div
-                key={index}
+                key={markedAt}
                 className="missed-marker"
-                data-missed-marker={index}
+                data-missed-marker={markedAt}
                 style={{
                   left: at.x - size / 2,
                   top: at.y - size / 2,

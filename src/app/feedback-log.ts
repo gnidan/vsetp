@@ -1,5 +1,6 @@
-import type { Mark, Point } from "../model";
+import type { Mark, Point, Track, TrackId } from "../model";
 import { ROI_SPAN_FACTOR } from "../vision/pipeline/roi";
+import { centroid } from "../worker/quad-utils";
 import { LIVE_FRAME_MAX_DIMENSION } from "./live-capture";
 
 // How close (live-frame px) a found roi-assist track must be to a
@@ -49,5 +50,25 @@ export function createFeedbackLog(): FeedbackLog {
     toJson() {
       return JSON.stringify({ marks }, null, 2);
     },
+  };
+}
+
+// ROI outcome inference, deduped: a roi-assist track keeps its
+// provenance for its LIFETIME, so only its FIRST appearance may
+// resolve a missed-card mark — a persisting assist track must never
+// go on to falsely resolve marks made later. One reporter per live
+// stretch (the Set resets with it), so a legitimate re-find in a
+// fresh stretch can still resolve.
+export function createRoiOutcomeReporter(
+  log: Pick<FeedbackLog, "noteRoiFound">,
+): (tracks: Track[], at: number) => void {
+  const reported = new Set<TrackId>();
+  return (tracks, at) => {
+    for (const track of tracks) {
+      if (track.provenance !== "roi-assist") continue;
+      if (reported.has(track.trackId)) continue;
+      reported.add(track.trackId);
+      log.noteRoiFound(centroid(track.quad), at);
+    }
   };
 }

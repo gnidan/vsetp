@@ -1,7 +1,10 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
 import type { FeedbackLog } from "../app/feedback-log";
-import { createFeedbackLog } from "../app/feedback-log";
+import {
+  createFeedbackLog,
+  createRoiOutcomeReporter,
+} from "../app/feedback-log";
 import { installDecision, isIosSafari } from "../app/install";
 import { createLiveCapturer } from "../app/live-capture";
 import { createLiveDriver, createSchedule } from "../app/live-driver";
@@ -12,8 +15,7 @@ import {
   DisposedError,
   createWorkerClient,
 } from "../app/worker-client";
-import type { Mark, Point } from "../model";
-import { centroid } from "../worker/quad-utils";
+import type { Mark } from "../model";
 import { LIVE_NUDGE_MS, announcementFor } from "./announce";
 import { AnalysisView } from "./AnalysisView";
 import { CameraProvider, useCamera } from "./CameraProvider";
@@ -21,7 +23,7 @@ import { CaptureView } from "./CaptureView";
 import type { SheetRequest } from "./FeedbackSheet";
 import { FeedbackSheet } from "./FeedbackSheet";
 import { Hud, LiveHud } from "./Hud";
-import type { StageTap } from "./LiveView";
+import type { MissedMarker, StageTap } from "./LiveView";
 import { LiveView } from "./LiveView";
 import { PresenceBorder } from "./PresenceBorder";
 import { createSetColorMap } from "./set-colors";
@@ -184,6 +186,13 @@ function Session({
     const video = videoRef.current;
     if (!client || !video) return;
     let torndown = false;
+    // ROI outcome inference: a track the worker minted from the
+    // user's missed-card assist resolves the nearest unresolved mark
+    // (its marker glyph disappears on that same render). Deduped by
+    // track id — an assist track keeps its provenance for life, and
+    // only its FIRST appearance is an outcome. One reporter per live
+    // stretch, so a fresh stretch's re-find can still resolve.
+    const reportRoiOutcomes = createRoiOutcomeReporter(feedbackLog);
     // driver-per-effect-run (the client-per-mount precedent): a
     // StrictMode replay stops the first driver in cleanup and starts
     // a fresh one, and the disposed first client's rejections are
@@ -193,14 +202,7 @@ function Session({
       video,
       capture: createLiveCapturer(),
       onUpdate: (update) => {
-        // ROI outcome inference: a track the worker minted from the
-        // user's missed-card assist resolves the nearest unresolved
-        // mark (its marker glyph disappears on this same render)
-        for (const track of update.tracks) {
-          if (track.provenance === "roi-assist") {
-            feedbackLog.noteRoiFound(centroid(track.quad), Date.now());
-          }
-        }
+        reportRoiOutcomes(update.tracks, Date.now());
         dispatch({
           type: "live-update-received",
           tracks: update.tracks,
@@ -446,13 +448,19 @@ function Session({
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `vsetp-feedback-${feedbackLog.entries().length}.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    try {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `vsetp-feedback-${feedbackLog.entries().length}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } finally {
+      // deferred revoke: Safari has aborted downloads whose blob URL
+      // was revoked synchronously after click; finally so the URL
+      // can't leak if the anchor dance ever throws
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
   }
 
   function dismissInstallBanner() {
@@ -479,16 +487,17 @@ function Session({
 
   const { engine, screen, reveal } = state;
 
-  // unresolved missed-card marks render as retryable glyphs; live
-  // updates re-render this continuously, so reading the mutable log
-  // during render stays fresh
-  const missedMarkers: Point[] =
+  // unresolved missed-card marks render as retryable glyphs, keyed
+  // by their log timestamp (stable identity); live updates re-render
+  // this continuously, so reading the mutable log during render
+  // stays fresh
+  const missedMarkers: MissedMarker[] =
     screen.phase === "live"
       ? feedbackLog
           .entries()
           .flatMap((entry) =>
             entry.mark.type === "missed-card" && !entry.outcome
-              ? [entry.mark.at]
+              ? [{ at: entry.mark.at, markedAt: entry.at }]
               : [],
           )
       : [];
