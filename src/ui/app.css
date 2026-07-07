@@ -313,14 +313,13 @@ body {
   border-radius: 0 999px 999px 0;
 }
 /* ---- live stage ---- */
-/* overlay-only layer: the camera video shows through from the
-   provider underneath; Task 7 adds tap handling and will lift the
-   pointer-events block */
+/* the tap surface for feedback marks: the camera video still shows
+   through from the provider underneath, but this layer now owns
+   pointer events (the HUD stack sits above it at z-index 2) */
 .live-view {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  pointer-events: none;
 }
 /* the matrix3d carrier: CSS interpolates between per-update
    transforms so ghosts glide instead of jumping (spec; the
@@ -389,16 +388,107 @@ body {
     transform: scale(1.7);
   }
 }
+/* invisible per-track tap targets, expanded to the 44pt client
+   floor in frame coordinates (see expandedHitBox); they glide with
+   the same cadence as the ghost transform interpolation */
+.track-hit {
+  position: absolute;
+  transition:
+    left 100ms linear,
+    top 100ms linear,
+    width 100ms linear,
+    height 100ms linear;
+}
+/* "couldn't read this one": an unresolved missed-card mark; a tap
+   retries the ROI assist */
+.missed-marker {
+  position: absolute;
+  display: grid;
+  place-content: center;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.85);
+  background: rgba(10, 20, 32, 0.7);
+  color: #f2f5f9;
+  font-weight: 700;
+}
+/* feedback bottom sheet over the running feed; backdrop tap-away
+   dismisses. Above the HUD stack (2), below the failure overlay (5) */
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.35);
+}
+.feedback-sheet {
+  background: #0a1420;
+  border-radius: 16px 16px 0 0;
+  padding: 1rem calc(env(safe-area-inset-right) + 1rem)
+    calc(env(safe-area-inset-bottom) + 1rem)
+    calc(env(safe-area-inset-left) + 1rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.sheet-title {
+  margin: 0;
+  font-weight: 600;
+}
+.sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.feedback-sheet button {
+  min-height: 44px; /* touch-target floor (spec: binding) */
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f5f9;
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+}
+/* HUD overflow ("Export session log") pops above the action row */
+.hud-actions {
+  position: relative;
+  display: flex;
+  gap: 0.4rem;
+}
+.hud-menu {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0a1420;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  padding: 0.4rem;
+  white-space: nowrap;
+}
+.hud-overflow {
+  min-width: 44px;
+  min-height: 44px;
+}
 /* Live/Still toggle: explicit 44pt touch-target floor */
 .mode-toggle {
   min-width: 44px;
   min-height: 44px;
 }
+.mode-toggle:disabled {
+  opacity: 0.5;
+}
 @media (prefers-reduced-motion: reduce) {
-  .track-ghost {
+  .track-ghost,
+  .track-hit {
     transition: none;
   }
   .track-outline.reading .core {
+    animation: none;
+  }
+  .fresh-pulse {
     animation: none;
   }
 }

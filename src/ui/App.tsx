@@ -1,5 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
+import type { FeedbackLog } from "../app/feedback-log";
+import { createFeedbackLog } from "../app/feedback-log";
 import { installDecision, isIosSafari } from "../app/install";
 import { createLiveCapturer } from "../app/live-capture";
 import { createLiveDriver, createSchedule } from "../app/live-driver";
@@ -10,11 +12,16 @@ import {
   DisposedError,
   createWorkerClient,
 } from "../app/worker-client";
+import type { Mark, Point } from "../model";
+import { centroid } from "../worker/quad-utils";
 import { LIVE_NUDGE_MS, announcementFor } from "./announce";
 import { AnalysisView } from "./AnalysisView";
 import { CameraProvider, useCamera } from "./CameraProvider";
 import { CaptureView } from "./CaptureView";
+import type { SheetRequest } from "./FeedbackSheet";
+import { FeedbackSheet } from "./FeedbackSheet";
 import { Hud, LiveHud } from "./Hud";
+import type { StageTap } from "./LiveView";
 import { LiveView } from "./LiveView";
 import { PresenceBorder } from "./PresenceBorder";
 import { createSetColorMap } from "./set-colors";
@@ -55,6 +62,10 @@ function engineFailureMessage(error: Error): string {
 export function App() {
   const [generation, setGeneration] = useState(0);
   const [announcement, setAnnouncement] = useState("");
+  // session feedback corpus: lives ABOVE Session (spec) so an engine
+  // Retry — which remounts Session via key — preserves every mark
+  const feedbackLogRef = useRef<FeedbackLog | null>(null);
+  feedbackLogRef.current ??= createFeedbackLog();
   // a11y invariant: this aria-live region mounts exactly once and
   // NEVER remounts — including across Retry, which remounts Session
   // via key. Screen readers only track regions that persist; only
@@ -69,6 +80,7 @@ export function App() {
         <Session
           key={generation}
           announce={setAnnouncement}
+          feedbackLog={feedbackLogRef.current}
           onRetry={() => setGeneration((n) => n + 1)}
         />
       </CameraProvider>
@@ -78,9 +90,11 @@ export function App() {
 
 function Session({
   announce,
+  feedbackLog,
   onRetry,
 }: {
   announce(text: string): void;
+  feedbackLog: FeedbackLog;
   onRetry(): void;
 }) {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
@@ -89,6 +103,8 @@ function Session({
   // camera grants. "still" pauses it for the shutter flow — Task 6
   // wires the one-way stop; Task 7 owns the full serialized toggle.
   const [mode, setMode] = useState<"live" | "still">("live");
+  // one feedback sheet at a time, opened by a live-stage tap
+  const [sheet, setSheet] = useState<SheetRequest | null>(null);
   // session-scoped: identities keep their line colors across live
   // exits/re-entries within this Session (spec)
   const setColorsRef = useRef(createSetColorMap());
@@ -159,12 +175,21 @@ function Session({
       client,
       video,
       capture: createLiveCapturer(),
-      onUpdate: (update) =>
+      onUpdate: (update) => {
+        // ROI outcome inference: a track the worker minted from the
+        // user's missed-card assist resolves the nearest unresolved
+        // mark (its marker glyph disappears on this same render)
+        for (const track of update.tracks) {
+          if (track.provenance === "roi-assist") {
+            feedbackLog.noteRoiFound(centroid(track.quad), Date.now());
+          }
+        }
         dispatch({
           type: "live-update-received",
           tracks: update.tracks,
           at: Date.now(),
-        }),
+        });
+      },
       onDegraded: (degraded) => dispatch({ type: "live-degraded", degraded }),
       onStall: () => {
         // a stalled driver stays "started" and never self-recovers:
@@ -194,7 +219,14 @@ function Session({
       void started.then(() => driver.stop()).catch(() => {});
       dispatch({ type: "live-left" });
     };
-  }, [wantLive, videoRef]);
+  }, [wantLive, videoRef, feedbackLog]);
+
+  // sheets belong to the live stage: leaving it (mode toggle, stall,
+  // camera drop) closes any open one
+  const isLive = state.screen.phase === "live";
+  useEffect(() => {
+    if (!isLive) setSheet(null);
+  }, [isLive]);
 
   // Slow-cadence re-announce while the live view sits empty: bump the
   // reducer's announceTick so announcementFor can alternate the
@@ -308,6 +340,62 @@ function Session({
     analyzeCapture(client, capture);
   }
 
+  // A tap on the live stage, already hit-tested against the rendered
+  // elements (LiveView): one track → card sheet; overlap → chooser;
+  // open table → the explicit missed-card confirmation beat; an
+  // unresolved marker → retry that mark (once per tap).
+  function onStageTap(tap: StageTap) {
+    const { screen } = state;
+    if (screen.phase !== "live") return;
+    switch (tap.kind) {
+      case "tracks": {
+        const hit = screen.tracks.filter((track) =>
+          tap.trackIds.includes(track.trackId),
+        );
+        if (hit.length === 1) {
+          setSheet({ kind: "card", track: hit[0], at: tap.at });
+        } else if (hit.length > 1) {
+          setSheet({ kind: "chooser", tracks: hit, at: tap.at });
+        }
+        return;
+      }
+      case "empty":
+        setSheet({ kind: "empty", at: tap.at });
+        return;
+      case "marker":
+        sendMark({ type: "missed-card", at: tap.at });
+        dispatch({ type: "mark-confirmed", text: "Looking there again." });
+        return;
+    }
+  }
+
+  function sendMark(mark: Mark) {
+    // best-effort delivery: a dying worker or a mid-stop race
+    // surfaces through the driver's stall/failure paths, never here
+    clientRef.current?.sendMark(mark).catch(() => {});
+  }
+
+  function confirmMark(mark: Mark, confirmation: string) {
+    setSheet(null);
+    feedbackLog.record(mark, Date.now());
+    dispatch({ type: "mark-confirmed", text: confirmation });
+    sendMark(mark);
+  }
+
+  function exportFeedbackLog() {
+    const blob = new Blob([feedbackLog.toJson()], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `vsetp-feedback-${feedbackLog.entries().length}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function dismissInstallBanner() {
     localStorage.setItem(INSTALL_DISMISSED_KEY, "1");
     setInstallDismissed(true);
@@ -331,6 +419,20 @@ function Session({
   });
 
   const { engine, screen, reveal } = state;
+
+  // unresolved missed-card marks render as retryable glyphs; live
+  // updates re-render this continuously, so reading the mutable log
+  // during render stays fresh
+  const missedMarkers: Point[] =
+    screen.phase === "live"
+      ? feedbackLog
+          .entries()
+          .flatMap((entry) =>
+            entry.mark.type === "missed-card" && !entry.outcome
+              ? [entry.mark.at]
+              : [],
+          )
+      : [];
 
   return (
     <main className="app">
@@ -442,6 +544,8 @@ function Session({
               colorFor={setColorsRef.current.colorFor}
               updateCount={screen.updateCount}
               degraded={screen.degraded}
+              markers={missedMarkers}
+              onTap={onStageTap}
             />
             {reveal === "presence" && (
               <PresenceBorder present={screen.presence.shown} />
@@ -455,9 +559,11 @@ function Session({
                 }
                 selected={reveal === "sets" ? screen.selected : null}
                 reveal={reveal}
+                toggleDisabled={false}
                 onSelect={(id) => dispatch({ type: "select-set", id })}
                 onReveal={(m) => dispatch({ type: "set-reveal", mode: m })}
                 onToggleMode={() => setMode("still")}
+                onExport={exportFeedbackLog}
               />
             </div>
             <SrLiveResults
@@ -465,6 +571,16 @@ function Session({
               liveSets={reveal === "sets" ? screen.liveSets : []}
               selected={reveal === "sets" ? screen.selected : null}
             />
+            {sheet && (
+              <FeedbackSheet
+                request={sheet}
+                onMark={confirmMark}
+                onChoose={(track) =>
+                  setSheet({ kind: "card", track, at: sheet.at })
+                }
+                onDismiss={() => setSheet(null)}
+              />
+            )}
           </>
         )}
       </div>

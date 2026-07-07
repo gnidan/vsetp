@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { AnalyzedSet } from "../app/highlights";
 import type { RevealMode } from "../app/state";
 import type { FrameAnalysis } from "../model";
@@ -136,19 +137,24 @@ export function LiveHud({
   setIds,
   selected,
   reveal,
+  toggleDisabled,
   onSelect,
   onReveal,
   onToggleMode,
+  onExport,
 }: {
   lockedCount: number;
   hasSet: boolean;
   setIds: SetIdentity[];
   selected: SetIdentity | null;
   reveal: RevealMode;
+  toggleDisabled: boolean;
   onSelect(id: SetIdentity): void;
   onReveal(mode: RevealMode): void;
   onToggleMode(): void;
+  onExport(): void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="hud">
       <p className="hud-summary">
@@ -159,7 +165,31 @@ export function LiveHud({
         <SetChips ids={setIds} selected={selected} onSelect={onSelect} />
       )}
       <div className="hud-actions">
-        <button className="mode-toggle" onClick={onToggleMode}>
+        <button
+          className="hud-overflow"
+          aria-label="More actions"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          ⋯
+        </button>
+        {menuOpen && (
+          <div className="hud-menu">
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onExport();
+              }}
+            >
+              Export session log
+            </button>
+          </div>
+        )}
+        <button
+          className="mode-toggle"
+          disabled={toggleDisabled}
+          onClick={onToggleMode}
+        >
           Still
         </button>
       </div>
