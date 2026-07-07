@@ -69,7 +69,9 @@ describe("readCard", () => {
   // AREA_CONSISTENCY band and gets counted as a symbol). A quad
   // shifted +8px in x on this fixture's "2-red-oval-open" card
   // systematically read count 3 instead of 2 before the ring-hugger
-  // filter existed.
+  // filter existed: the off-card strip is clipped flush on three
+  // edges (dropped), while the two real ovals — merged with edge
+  // bleed and clipped flush on ONE edge — must survive the filter.
   test("rejects ring-hugging intrusion after a quad overshoot", async () => {
     const fixtures = await loadFixtures("tuning");
     const fixture = fixtures.find((f) => f.name === "pic1326145");

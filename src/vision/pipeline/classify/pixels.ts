@@ -1,8 +1,6 @@
 import type { SymbolRegion } from "../../adapter";
+import { BORDER_RING } from "../../adapter";
 import { polygonBounds, polygonMask } from "../regions";
-
-// fraction of the raster edge treated as known-white card border
-const BORDER_RING = 0.05;
 
 // Per-channel gains that would make the card's own border neutral.
 // Every Set card carries this white reference; using it makes hue
@@ -51,15 +49,13 @@ export function whiteBalanced(raster: ImageData): ImageData {
   return new ImageData(data, raster.width, raster.height);
 }
 
-// Drop regions whose bounding box touches or crosses the border-ring
-// boundary (see BORDER_RING above). Real Set symbols never come
-// within 5% of the card edge; a region that does is off-card
-// intrusion — table strip, background, glare bleeding past the
-// rectified border — let in by a quad that overshoots the true card
-// edge. Its area can otherwise land inside classifyCount's
-// AREA_CONSISTENCY band and get counted as a symbol (systematic
-// count+1 that consensus locks onto). Filter once, here, before any
-// classifier sees the regions — not a per-classifier band tweak.
+// Drop ring-hugging regions: off-card intrusion — table strip,
+// background, shadow past the rectified border — let in by a quad
+// that overshoots the true card edge (BORDER_RING, adapter.ts). Such
+// a region's area can land inside classifyCount's AREA_CONSISTENCY
+// band and get counted as a symbol (systematic count+1 that consensus
+// locks onto). Filter once, here, before any classifier sees the
+// regions — not a per-classifier band tweak.
 export function withoutRingHuggers(
   regions: SymbolRegion[],
   raster: ImageData,
@@ -67,19 +63,34 @@ export function withoutRingHuggers(
   const { width, height } = raster;
   const rx = Math.max(2, Math.round(width * BORDER_RING));
   const ry = Math.max(2, Math.round(height * BORDER_RING));
+  // segmentSymbols blanks the ring with a corner-INCLUSIVE rectangle
+  // (segment.ts), so the pixels surviving the blank span
+  // [rx, width-1-rx] x [ry, height-1-ry] and anything clipped by the
+  // blank sits flush ON those lines. Flush contact alone does not
+  // separate intrusion from symbol — a real symbol on a dim,
+  // imperfectly-quadded card can be clipped flush on one side
+  // (pic1014255's third squiggle, maxX exactly on the last surviving
+  // column, is a real symbol on a 55/55 fixture). What separates them
+  // is HOW MANY sides: an off-card strip runs the full raster
+  // dimension, so the blank clips it on three sides (the entering
+  // edge plus both perpendicular edges), while a clipped symbol —
+  // small relative to the card — touches exactly one. Hence: reject
+  // flush contact on two or more edges; and reject outright any bbox
+  // poking past the surviving rect (impossible after the blank, so
+  // certainly off-card if a segmentation ever hands one over).
+  const lastX = width - 1 - rx;
+  const lastY = height - 1 - ry;
   return regions.filter((region) => {
-    const bounds = polygonBounds(region.outline);
-    // segmentSymbols blanks the ring itself before contouring (see
-    // segment.ts), so an off-card intrusion's contour is pinned flush
-    // against the ring's inner edge rather than crossing past it —
-    // "touches" must reject that flush case too, hence strict >/<
-    // against the boundary rather than >=/<=.
-    return (
-      bounds.minX > rx &&
-      bounds.maxX < width - rx &&
-      bounds.minY > ry &&
-      bounds.maxY < height - ry
-    );
+    const b = polygonBounds(region.outline);
+    if (b.minX < rx || b.maxX > lastX || b.minY < ry || b.maxY > lastY) {
+      return false;
+    }
+    const flushEdges =
+      Number(b.minX === rx) +
+      Number(b.maxX === lastX) +
+      Number(b.minY === ry) +
+      Number(b.maxY === lastY);
+    return flushEdges < 2;
   });
 }
 

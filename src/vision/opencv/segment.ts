@@ -1,4 +1,5 @@
 import type { SymbolRegion } from "../adapter";
+import { BORDER_RING } from "../adapter";
 import type { Cv } from "./cv";
 
 // a symbol must occupy a sane fraction of the raster
@@ -81,11 +82,13 @@ function gateScore(whole: number, fragments: number): number {
   return Math.min(whole, 3) * 10 - fragments;
 }
 
-// outer fraction of the raster blanked in the ink mask: it is the
-// white-reference border ring by construction (symbols never reach
-// it), and off-card bleed there (colored tablecloth, shadow) otherwise
-// reads as ink and can merge with a symbol under the permissive gates
-const BORDER_RING = 0.05;
+// The ink mask blanks the outer BORDER_RING fraction of the raster
+// (imported from adapter.ts — withoutRingHuggers' flush-boundary
+// geometry depends on segmentation blanking with the SAME value): it
+// is the white-reference border ring by construction (symbols never
+// reach it), and off-card bleed there (colored tablecloth, shadow)
+// otherwise reads as ink and can merge with a symbol under the
+// permissive gates.
 
 function matToPoints(mat: Cv): { x: number; y: number }[] {
   const points: { x: number; y: number }[] = [];
