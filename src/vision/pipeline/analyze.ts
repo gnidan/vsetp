@@ -2,7 +2,7 @@ import type { DetectedCard } from "../../model";
 import { cardId } from "../../model";
 import type { CardVision, DetectOptions } from "../adapter";
 import { classifyCard } from "./classify";
-import { whiteBalanced } from "./classify/pixels";
+import { whiteBalanced, withoutRingHuggers } from "./classify/pixels";
 import { orientQuad } from "./orientation";
 
 export interface AnalyzeOutput {
@@ -38,7 +38,10 @@ export function analyze(
     // saturated enough to read as ink (see whiteBalanced)
     const raster = whiteBalanced(vision.rectifyCard(frame, quad));
     const t2 = performance.now();
-    const regions = vision.segmentSymbols(raster);
+    // off-card content past an overshot quad hugs the border ring;
+    // filter it out before it can reach any classifier (see
+    // withoutRingHuggers)
+    const regions = withoutRingHuggers(vision.segmentSymbols(raster), raster);
     const t3 = performance.now();
     timings.rectify += t2 - t1;
     timings.segment += t3 - t2;

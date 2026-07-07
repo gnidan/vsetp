@@ -1,7 +1,7 @@
 import type { AttributeConfidence, Card, Quad } from "../../model";
 import type { CardVision } from "../adapter";
 import { classifyCard } from "./classify";
-import { whiteBalanced } from "./classify/pixels";
+import { whiteBalanced, withoutRingHuggers } from "./classify/pixels";
 import { orientQuad } from "./orientation";
 
 // Single-quad read: rectify -> white-balance -> segment -> classify,
@@ -18,7 +18,10 @@ export function readCard(
   quad: Quad,
 ): { card: Card; confidence: AttributeConfidence; quad: Quad } | null {
   const raster = whiteBalanced(vision.rectifyCard(frame, quad));
-  const regions = vision.segmentSymbols(raster);
+  // off-card content past an overshot quad hugs the border ring;
+  // filter it out before it can reach any classifier (see
+  // withoutRingHuggers)
+  const regions = withoutRingHuggers(vision.segmentSymbols(raster), raster);
   if (regions.length === 0) return null;
   const { card, confidence } = classifyCard(raster, regions);
   return { card, confidence, quad: orientQuad(quad, regions, raster) };

@@ -1,5 +1,5 @@
 import type { SymbolRegion } from "../../adapter";
-import { polygonMask } from "../regions";
+import { polygonBounds, polygonMask } from "../regions";
 
 // fraction of the raster edge treated as known-white card border
 const BORDER_RING = 0.05;
@@ -49,6 +49,38 @@ export function whiteBalanced(raster: ImageData): ImageData {
     data[i + 3] = raster.data[i + 3];
   }
   return new ImageData(data, raster.width, raster.height);
+}
+
+// Drop regions whose bounding box touches or crosses the border-ring
+// boundary (see BORDER_RING above). Real Set symbols never come
+// within 5% of the card edge; a region that does is off-card
+// intrusion — table strip, background, glare bleeding past the
+// rectified border — let in by a quad that overshoots the true card
+// edge. Its area can otherwise land inside classifyCount's
+// AREA_CONSISTENCY band and get counted as a symbol (systematic
+// count+1 that consensus locks onto). Filter once, here, before any
+// classifier sees the regions — not a per-classifier band tweak.
+export function withoutRingHuggers(
+  regions: SymbolRegion[],
+  raster: ImageData,
+): SymbolRegion[] {
+  const { width, height } = raster;
+  const rx = Math.max(2, Math.round(width * BORDER_RING));
+  const ry = Math.max(2, Math.round(height * BORDER_RING));
+  return regions.filter((region) => {
+    const bounds = polygonBounds(region.outline);
+    // segmentSymbols blanks the ring itself before contouring (see
+    // segment.ts), so an off-card intrusion's contour is pinned flush
+    // against the ring's inner edge rather than crossing past it —
+    // "touches" must reject that flush case too, hence strict >/<
+    // against the boundary rather than >=/<=.
+    return (
+      bounds.minX > rx &&
+      bounds.maxX < width - rx &&
+      bounds.minY > ry &&
+      bounds.maxY < height - ry
+    );
+  });
 }
 
 export function rgbAt(

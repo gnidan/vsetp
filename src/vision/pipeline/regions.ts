@@ -10,6 +10,27 @@ export function polygonArea(points: Point[]): number {
   return Math.abs(sum) / 2;
 }
 
+export interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export function polygonBounds(points: Point[]): Bounds {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
 export function perimeter(points: Point[]): number {
   let sum = 0;
   for (let i = 0; i < points.length; i++) {
