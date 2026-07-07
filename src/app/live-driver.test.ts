@@ -578,6 +578,33 @@ describe("createLiveDriver", () => {
   });
 });
 
+// A fake rVFC video: captures the pending frame callback so the test
+// can fire it with explicit timestamps, simulating a camera that
+// delivers frames much faster than the frame budget.
+function fakeRvfcVideo() {
+  let pending: ((now: number, metadata: unknown) => void) | null = null;
+  let handle = 0;
+  const cancelled: number[] = [];
+  return {
+    video: {
+      requestVideoFrameCallback(cb: (now: number, metadata: unknown) => void) {
+        pending = cb;
+        return ++handle;
+      },
+      cancelVideoFrameCallback(h: number) {
+        cancelled.push(h);
+      },
+    } satisfies RVFCVideo,
+    fire(now: number) {
+      const cb = pending;
+      pending = null;
+      cb?.(now, {});
+    },
+    hasPending: () => pending !== null,
+    cancelled,
+  };
+}
+
 describe("createSchedule", () => {
   test("calls requestVideoFrameCallback bound to the video (not detached)", () => {
     let receivedThis: unknown;
@@ -591,6 +618,59 @@ describe("createSchedule", () => {
     const schedule = createSchedule(video);
     schedule(() => {});
     expect(receivedThis).toBe(video);
+  });
+
+  test("rVFC path throttles a ~30fps camera to ≤1 tick per 100ms", () => {
+    const rvfc = fakeRvfcVideo();
+    const schedule = createSchedule(rvfc.video);
+    const tickTimes: number[] = [];
+    let now = 0;
+    schedule(() => tickTimes.push(now));
+    // frames every 33ms for a full second: 31 fires, but only fires
+    // landing ≥100ms after the last invoked tick may invoke — every
+    // consecutive pair of ticks must be ≥100ms apart (≤10 ticks/s)
+    for (now = 0; now <= 1000; now += 33) rvfc.fire(now);
+    for (let i = 1; i < tickTimes.length; i++) {
+      expect(tickTimes[i] - tickTimes[i - 1]).toBeGreaterThanOrEqual(100);
+    }
+    // 0, 132, 264, …: 8 ticks — well under the 10/s budget, and far
+    // below the 31 a per-frame rVFC would have delivered
+    expect(tickTimes.length).toBeLessThanOrEqual(10);
+    expect(tickTimes.length).toBeGreaterThanOrEqual(8);
+  });
+
+  test("rVFC path invokes the very first frame immediately", () => {
+    const rvfc = fakeRvfcVideo();
+    const schedule = createSchedule(rvfc.video);
+    const tick = vi.fn();
+    schedule(tick);
+    rvfc.fire(0);
+    expect(tick).toHaveBeenCalledTimes(1);
+  });
+
+  test("rVFC path re-arms after a skipped frame (loop stays alive)", () => {
+    const rvfc = fakeRvfcVideo();
+    const schedule = createSchedule(rvfc.video);
+    const tick = vi.fn();
+    schedule(tick);
+    rvfc.fire(0); // ticks
+    rvfc.fire(33); // skipped (within the 100ms window)
+    expect(tick).toHaveBeenCalledTimes(1);
+    expect(rvfc.hasPending()).toBe(true); // still re-armed
+    rvfc.fire(100); // window elapsed
+    expect(tick).toHaveBeenCalledTimes(2);
+  });
+
+  test("rVFC path stops firing and cancels once cancelled", () => {
+    const rvfc = fakeRvfcVideo();
+    const schedule = createSchedule(rvfc.video);
+    const tick = vi.fn();
+    const cancel = schedule(tick);
+    rvfc.fire(0);
+    cancel();
+    expect(rvfc.cancelled.length).toBeGreaterThan(0);
+    rvfc.fire(500); // a stray late fire must not tick
+    expect(tick).toHaveBeenCalledTimes(1);
   });
 });
 

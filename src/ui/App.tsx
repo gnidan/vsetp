@@ -8,11 +8,13 @@ import {
 import { installDecision, isIosSafari } from "../app/install";
 import { createLiveCapturer } from "../app/live-capture";
 import { createLiveDriver, createSchedule } from "../app/live-driver";
+import type { RevealMode } from "../app/state";
 import { initialState, reduce } from "../app/state";
 import type { WorkerClient } from "../app/worker-client";
 import {
   AnalyzeError,
   DisposedError,
+  LiveSessionError,
   createWorkerClient,
 } from "../app/worker-client";
 import type { Mark } from "../model";
@@ -69,6 +71,14 @@ function engineFailureMessage(error: Error): string {
 export function App() {
   const [generation, setGeneration] = useState(0);
   const [announcement, setAnnouncement] = useState("");
+  // Mode and reveal live ABOVE the keyed Session, like the feedback
+  // log (spec: "retry replaces Session … while the camera, mode,
+  // reveal, and FeedbackLog persist"): an engine Retry must not
+  // force-restart Live or reset the spoiler rung. Ambient by
+  // default: the live session starts as soon as the camera grants;
+  // "still" pauses it for the shutter flow.
+  const [mode, setMode] = useState<"live" | "still">("live");
+  const [reveal, setReveal] = useState<RevealMode>("cards");
   // session feedback corpus: lives ABOVE Session (spec) so an engine
   // Retry — which remounts Session via key — preserves every mark
   const feedbackLogRef = useRef<FeedbackLog | null>(null);
@@ -88,6 +98,10 @@ export function App() {
           key={generation}
           announce={setAnnouncement}
           feedbackLog={feedbackLogRef.current}
+          mode={mode}
+          setMode={setMode}
+          reveal={reveal}
+          setReveal={setReveal}
           onRetry={() => setGeneration((n) => n + 1)}
         />
       </CameraProvider>
@@ -98,18 +112,26 @@ export function App() {
 function Session({
   announce,
   feedbackLog,
+  mode,
+  setMode,
+  reveal,
+  setReveal,
   onRetry,
 }: {
   announce(text: string): void;
   feedbackLog: FeedbackLog;
+  mode: "live" | "still";
+  setMode(mode: "live" | "still"): void;
+  reveal: RevealMode;
+  setReveal(mode: RevealMode): void;
   onRetry(): void;
 }) {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
   const { camera, videoRef } = useCamera();
-  // ambient by default: the live session starts as soon as the
-  // camera grants. "still" pauses it for the shutter flow — Task 6
-  // wires the one-way stop; Task 7 owns the full serialized toggle.
-  const [mode, setMode] = useState<"live" | "still">("live");
+  // fresh mode for the driver effect's cleanup (whose closure is
+  // stale): only a toggle-to-still teardown speaks "Still mode."
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   // one feedback sheet at a time, opened by a live-stage tap
   const [sheet, setSheet] = useState<SheetRequest | null>(null);
   // session-scoped: identities keep their line colors across live
@@ -236,6 +258,21 @@ function Session({
       .catch((error: Error) => {
         setModeSwitching(false);
         if (error instanceof DisposedError) return; // mount lifecycle
+        if (error instanceof LiveSessionError) {
+          // benign transient, not an engine failure: a Cancel's
+          // analyze is still settling when Live starts, so startLive
+          // rejects ("analyze pending"). Fall back to Still with an
+          // idle notice; the cleanup below settles the chain (its
+          // own live-left lands on an already-idle screen: no-op).
+          dispatch({
+            type: "live-left",
+            notice:
+              "Still finishing the last analysis — " +
+              "try Live again in a moment.",
+          });
+          setMode("still");
+          return;
+        }
         dispatch({
           type: "engine-failed",
           message: engineFailureMessage(error),
@@ -253,7 +290,12 @@ function Session({
         .then(() => driver.stop())
         .catch(() => {})
         .then(() => {
-          dispatch({ type: "live-left" });
+          dispatch({
+            type: "live-left",
+            // mode transitions must speak: only a toggle-to-still
+            // teardown (not a camera drop or unmount) confirms
+            confirmation: modeRef.current === "still" ? "Still mode." : null,
+          });
           setModeSwitching(false);
         });
       liveChainRef.current = stopped;
@@ -289,10 +331,11 @@ function Session({
   }, [liveEmpty]);
 
   // push this session's announcement text up into App's persistent
-  // live region (the region itself must never remount; see App)
+  // live region (the region itself must never remount; see App);
+  // reveal rides along since the announcer's view includes it
   useEffect(() => {
-    announce(announcementFor(state));
-  }, [announce, state]);
+    announce(announcementFor({ ...state, reveal }));
+  }, [announce, state, reveal]);
 
   // revoke the previous capture's display URL once replaced
   useEffect(() => {
@@ -485,7 +528,7 @@ function Session({
     successes,
   });
 
-  const { engine, screen, reveal } = state;
+  const { engine, screen } = state;
 
   // unresolved missed-card marks render as retryable glyphs, keyed
   // by their log timestamp (stable identity); live updates re-render
@@ -592,7 +635,7 @@ function Session({
                 selected={screen.selected}
                 reveal={reveal}
                 onSelect={(id) => dispatch({ type: "select-set", id })}
-                onReveal={(mode) => dispatch({ type: "set-reveal", mode })}
+                onReveal={setReveal}
                 onRetake={() => dispatch({ type: "retake" })}
                 onReanalyze={() => {
                   const client = clientRef.current;
@@ -640,7 +683,7 @@ function Session({
                 reveal={reveal}
                 toggleDisabled={modeSwitching}
                 onSelect={(id) => dispatch({ type: "select-set", id })}
-                onReveal={(m) => dispatch({ type: "set-reveal", mode: m })}
+                onReveal={setReveal}
                 onToggleMode={toggleToStill}
                 onExport={exportFeedbackLog}
               />

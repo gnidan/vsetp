@@ -15,6 +15,12 @@ body {
     sans-serif;
 }
 .app {
+  /* border-box so the safe-area padding lands INSIDE 100dvh: .stage
+     then fills exactly the same inset box .camera-video sizes itself
+     to (see .camera-video) — LiveView's coverTransform reads the
+     stage rect, so the two boxes must coincide or ghosts/taps drift
+     by the inset sum on notched devices */
+  box-sizing: border-box;
   height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -249,21 +255,22 @@ body {
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
   z-index: 2;
 }
+/* no env() terms here (or in .install-banner/.feedback-sheet/
+   .live-toggle): .app's border-box padding already keeps the whole
+   stage inside the safe area, so per-element insets would double up
+   on notched devices */
 .hud {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.75rem;
-  padding: 0.75rem calc(env(safe-area-inset-right) + 1rem)
-    calc(env(safe-area-inset-bottom) + 0.75rem)
-    calc(env(safe-area-inset-left) + 1rem);
+  padding: 0.75rem 1rem;
 }
 .install-banner {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin: 0.5rem calc(env(safe-area-inset-right) + 1rem) 0
-    calc(env(safe-area-inset-left) + 1rem);
+  margin: 0.5rem 1rem 0;
 }
 .install-action {
   border-radius: 999px;
@@ -286,6 +293,7 @@ body {
 .hud-chips button,
 .hud-reveal button,
 .hud-actions button {
+  min-height: 44px; /* touch-target floor (spec: binding) */
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.4);
   background: rgba(0, 0, 0, 0.4);
@@ -425,9 +433,7 @@ body {
 .feedback-sheet {
   background: #0a1420;
   border-radius: 16px 16px 0 0;
-  padding: 1rem calc(env(safe-area-inset-right) + 1rem)
-    calc(env(safe-area-inset-bottom) + 1rem)
-    calc(env(safe-area-inset-left) + 1rem);
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -485,7 +491,7 @@ body {
 .live-toggle {
   position: absolute;
   bottom: 1.5rem;
-  left: calc(env(safe-area-inset-left) + 1rem);
+  left: 1rem;
   z-index: 2;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -502,7 +508,12 @@ body {
   .track-outline.reading .core {
     animation: none;
   }
+  /* no pulse: a STEADY dot instead of vanishing entirely — the
+     freshness cue stays visible, and degraded still reads one step
+     dimmer via --pulse-peak (degraded mode is visible, not secret) */
   .fresh-pulse {
     animation: none;
+    opacity: var(--pulse-peak);
+    transform: none;
   }
 }

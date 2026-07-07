@@ -270,57 +270,10 @@ describe("reduce", () => {
     expect(state.screen.phase).toBe("analyzing");
   });
 
-  test("reveal defaults to cards", () => {
-    expect(initialState().reveal).toBe("cards");
-  });
-
-  test("set-reveal switches the reveal mode", () => {
-    const state = reduce(initialState(), {
-      type: "set-reveal",
-      mode: "presence",
-    });
-    expect(state.reveal).toBe("presence");
-  });
-
-  test("reveal survives retake", () => {
-    let state = reduce(initialState(), { type: "set-reveal", mode: "sets" });
-    state = reduce(state, { type: "captured", capture: captureOf(6) });
-    state = reduce(state, {
-      type: "analysis-ok",
-      analysis: analysisOf(6, SET_KEYS),
-    });
-    state = reduce(state, { type: "retake" });
-    expect(state.screen.phase).toBe("idle");
-    expect(state.reveal).toBe("sets");
-  });
-
-  test("reveal survives reanalyze", () => {
-    let state = reduce(initialState(), {
-      type: "set-reveal",
-      mode: "presence",
-    });
-    state = reduce(state, { type: "captured", capture: captureOf(7) });
-    state = reduce(state, {
-      type: "analysis-ok",
-      analysis: analysisOf(7, SET_KEYS),
-    });
-    state = reduce(state, { type: "reanalyze" });
-    expect(state.screen.phase).toBe("analyzing");
-    expect(state.reveal).toBe("presence");
-  });
-
-  test("set-reveal does not disturb the screen", () => {
-    let state = reduce(initialState(), {
-      type: "captured",
-      capture: captureOf(8),
-    });
-    state = reduce(state, {
-      type: "analysis-ok",
-      analysis: analysisOf(8, SET_KEYS),
-    });
-    state = reduce(state, { type: "set-reveal", mode: "sets" });
-    expect(state.screen.phase).toBe("results");
-  });
+  // reveal no longer lives in the reducer: it hoisted to App state
+  // (above the keyed Session) so an engine Retry preserves it (spec:
+  // "retry replaces Session … while the camera, mode, reveal, and
+  // FeedbackLog persist").
 });
 
 function trackOf(
@@ -377,7 +330,9 @@ describe("reduce (live phase)", () => {
       emptySince: 100,
       degraded: false,
       announceTick: 0,
-      lastConfirmation: null,
+      // mode transitions must speak: entering live announces itself
+      // via the same transient-confirmation channel marks use
+      lastConfirmation: "Live mode.",
     });
   });
 
@@ -500,7 +455,35 @@ describe("reduce (live phase)", () => {
 
   test("live-left returns to a clean idle", () => {
     const state = reduce(liveState(), { type: "live-left" });
-    expect(state.screen).toEqual({ phase: "idle", notice: null });
+    expect(state.screen).toEqual({
+      phase: "idle",
+      notice: null,
+      confirmation: null,
+    });
+  });
+
+  test("live-left carries a notice into idle (cancel-then-live)", () => {
+    const state = reduce(liveState(), {
+      type: "live-left",
+      notice: "Still finishing the last analysis.",
+    });
+    expect(state.screen).toEqual({
+      phase: "idle",
+      notice: "Still finishing the last analysis.",
+      confirmation: null,
+    });
+  });
+
+  test("live-left carries a mode confirmation into idle", () => {
+    const state = reduce(liveState(), {
+      type: "live-left",
+      confirmation: "Still mode.",
+    });
+    expect(state.screen).toEqual({
+      phase: "idle",
+      notice: null,
+      confirmation: "Still mode.",
+    });
   });
 
   test("live-left outside live is ignored", () => {
@@ -520,7 +503,11 @@ describe("reduce (live phase)", () => {
       type: "live-degraded",
       degraded: true,
     });
-    expect(idle.screen).toEqual({ phase: "idle", notice: null });
+    expect(idle.screen).toEqual({
+      phase: "idle",
+      notice: null,
+      confirmation: null,
+    });
   });
 
   test("live-nudge bumps the announce tick in live only", () => {
@@ -529,7 +516,11 @@ describe("reduce (live phase)", () => {
     state = reduce(state, { type: "live-nudge" });
     expect(live(state).announceTick).toBe(2);
     const idle = reduce(initialState(), { type: "live-nudge" });
-    expect(idle.screen).toEqual({ phase: "idle", notice: null });
+    expect(idle.screen).toEqual({
+      phase: "idle",
+      notice: null,
+      confirmation: null,
+    });
   });
 
   test("a live update does not reset the announce tick", () => {
@@ -551,7 +542,11 @@ describe("reduce (live phase)", () => {
       type: "capture-failed",
       message: "nope",
     });
-    expect(state.screen).toEqual({ phase: "idle", notice: "nope" });
+    expect(state.screen).toEqual({
+      phase: "idle",
+      notice: "nope",
+      confirmation: null,
+    });
   });
 
   test("captured transitions live to analyzing (total reducer)", () => {
@@ -560,14 +555,6 @@ describe("reduce (live phase)", () => {
       capture: captureOf(9),
     });
     expect(state.screen.phase).toBe("analyzing");
-  });
-
-  test("reveal is untouched by live transitions", () => {
-    let state = reduce(initialState(), { type: "set-reveal", mode: "sets" });
-    state = reduce(state, { type: "live-entered", at: 0 });
-    state = updated(state, SET_TRACKS, 1);
-    state = reduce(state, { type: "live-left" });
-    expect(state.reveal).toBe("sets");
   });
 
   test("mark-confirmed stores the confirmation text in live only", () => {
@@ -580,7 +567,11 @@ describe("reduce (live phase)", () => {
       type: "mark-confirmed",
       text: "Marked correct.",
     });
-    expect(idle.screen).toEqual({ phase: "idle", notice: null });
+    expect(idle.screen).toEqual({
+      phase: "idle",
+      notice: null,
+      confirmation: null,
+    });
   });
 
   test("the next live update clears the confirmation", () => {

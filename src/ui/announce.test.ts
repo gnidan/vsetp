@@ -7,6 +7,7 @@ import type { LiveSet } from "../app/live-sets";
 import type { AppState, RevealMode } from "../app/state";
 import { initialState } from "../app/state";
 import type { SetIdentity } from "../set/identity";
+import type { AnnounceState } from "./announce";
 import { NO_CARDS_GRACE_MS, announcementFor } from "./announce";
 
 // announcementFor reads only counts; any set shape will do
@@ -15,8 +16,8 @@ const SOME_SET: AnalyzedSet = {
   triple: [cardId(0), cardId(1), cardId(2)],
 };
 
-function withEngine(engine: AppState["engine"]): AppState {
-  return { ...initialState(), engine };
+function withEngine(engine: AppState["engine"]): AnnounceState {
+  return { ...initialState(), engine, reveal: "cards" };
 }
 
 function captureOf(id: number) {
@@ -75,21 +76,49 @@ describe("announcementFor", () => {
   });
 
   test("idle notice is announced", () => {
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
-      screen: { phase: "idle", notice: "Some cards are cut off." },
+      screen: {
+        phase: "idle",
+        notice: "Some cards are cut off.",
+        confirmation: null,
+      },
       reveal: "cards",
     };
     expect(announcementFor(state)).toBe("Some cards are cut off.");
   });
 
   test("ready idle is quiet", () => {
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
-      screen: { phase: "idle", notice: null },
+      screen: { phase: "idle", notice: null, confirmation: null },
       reveal: "cards",
     };
     expect(announcementFor(state)).toBe("");
+  });
+
+  // mode-toggle announcements: leaving live speaks "Still mode."
+  // through the idle screen's spoken-only confirmation channel
+  test("an idle mode confirmation is announced", () => {
+    const state: AnnounceState = {
+      engine: { status: "ready" },
+      screen: { phase: "idle", notice: null, confirmation: "Still mode." },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe("Still mode.");
+  });
+
+  test("an idle notice and confirmation speak together", () => {
+    const state: AnnounceState = {
+      engine: { status: "ready" },
+      screen: {
+        phase: "idle",
+        notice: "Some cards are cut off.",
+        confirmation: "Still mode.",
+      },
+      reveal: "cards",
+    };
+    expect(announcementFor(state)).toBe("Some cards are cut off. Still mode.");
   });
 
   test("engine failure announces the specific message plus retry", () => {
@@ -115,7 +144,7 @@ describe("announcementFor", () => {
   });
 
   test("analyzing phase announces progress", () => {
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "analyzing",
@@ -136,7 +165,7 @@ describe("announcementFor", () => {
   // here — these tests only cover the pure announcement function.
   test("precedence: a ready engine's results screen wins", () => {
     const keys = Array.from({ length: 3 }, () => "1-red-oval-solid");
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -151,7 +180,7 @@ describe("announcementFor", () => {
   });
 
   test("precedence: a loading engine wins over an analyzing screen", () => {
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "loading", loaded: 1, total: 2 },
       screen: {
         phase: "analyzing",
@@ -165,7 +194,7 @@ describe("announcementFor", () => {
 
   test("sets mode results with sets found reports sets and cards", () => {
     const keys = Array.from({ length: 12 }, () => "1-red-oval-solid");
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -181,7 +210,7 @@ describe("announcementFor", () => {
 
   test("sets mode results with no sets reports card count", () => {
     const keys = Array.from({ length: 8 }, () => "1-red-oval-solid");
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -197,7 +226,7 @@ describe("announcementFor", () => {
 
   test("cards mode results reports only the card count", () => {
     const keys = Array.from({ length: 12 }, () => "1-red-oval-solid");
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -212,7 +241,7 @@ describe("announcementFor", () => {
   });
 
   test("cards mode singularizes a single card", () => {
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -228,7 +257,7 @@ describe("announcementFor", () => {
 
   test("presence mode results with a set reports presence", () => {
     const keys = Array.from({ length: 12 }, () => "1-red-oval-solid");
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -244,7 +273,7 @@ describe("announcementFor", () => {
 
   test("presence mode results without a set reports absence", () => {
     const keys = Array.from({ length: 8 }, () => "1-red-oval-solid");
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -266,7 +295,7 @@ describe("announcementFor", () => {
       { x: 40, y: 40 },
       { x: 0, y: 40 },
     ];
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -283,7 +312,7 @@ describe("announcementFor", () => {
   });
 
   test("cards mode with no cards keeps the framing guidance", () => {
-    const state: AppState = {
+    const state: AnnounceState = {
       engine: { status: "ready" },
       screen: {
         phase: "results",
@@ -324,7 +353,7 @@ const LIVE_SET: LiveSet = {
 function liveState(
   over: Partial<LiveScreen> = {},
   reveal: RevealMode = "cards",
-): AppState {
+): AnnounceState {
   return {
     engine: { status: "ready" },
     screen: {
@@ -501,6 +530,19 @@ describe("announcementFor (live)", () => {
     });
     expect(announcementFor(before)).toBe("No cards in view.");
     expect(announcementFor(after)).toBe(announcementFor(before));
+  });
+
+  // mode-toggle announcements: live-entered seeds lastConfirmation
+  // (see state.ts), so a fresh live entry speaks "Live mode."
+  test("a fresh live entry announces Live mode", () => {
+    const state = liveState({
+      tracks: [],
+      lockedCount: 0,
+      updatedAt: null,
+      updateCount: 0,
+      lastConfirmation: "Live mode.",
+    });
+    expect(announcementFor(state)).toBe("Live mode.");
   });
 
   test("a mark confirmation is appended to the live summary", () => {

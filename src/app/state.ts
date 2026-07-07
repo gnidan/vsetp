@@ -19,7 +19,14 @@ export type EngineState =
   | { status: "failed"; message: string };
 
 export type Screen =
-  | { phase: "idle"; notice: string | null }
+  | {
+      phase: "idle";
+      notice: string | null;
+      // transient spoken-only confirmation ("Still mode."), appended
+      // to the aria announcement, never rendered visually; replaced
+      // by the next screen transition
+      confirmation: string | null;
+    }
   | {
       phase: "analyzing";
       capture: Capture;
@@ -61,13 +68,15 @@ export type Screen =
     };
 
 // Graduated spoiler ladder: what the results screen may disclose.
-// Session-sticky — never reset by screen transitions.
+// Session-sticky — the STATE lives in App, above the keyed Session
+// (spec: retry replaces Session while the camera, mode, reveal, and
+// FeedbackLog persist), so it is not a reducer field; components and
+// announcementFor receive it alongside AppState.
 export type RevealMode = "cards" | "presence" | "sets";
 
 export interface AppState {
   engine: EngineState;
   screen: Screen;
-  reveal: RevealMode;
 }
 
 export type AppEvent =
@@ -83,10 +92,11 @@ export type AppEvent =
   | { type: "retake" }
   | { type: "reanalyze" }
   | { type: "select-set"; id: SetIdentity }
-  | { type: "set-reveal"; mode: RevealMode }
   | { type: "live-entered"; at: number }
   | { type: "live-update-received"; tracks: Track[]; at: number }
-  | { type: "live-left" }
+  // notice: a visible idle banner (e.g. the cancel-then-live
+  // fallback); confirmation: a spoken-only transient ("Still mode.")
+  | { type: "live-left"; notice?: string | null; confirmation?: string | null }
   | { type: "live-degraded"; degraded: boolean }
   | { type: "live-nudge" }
   | { type: "mark-confirmed"; text: string };
@@ -94,8 +104,7 @@ export type AppEvent =
 export function initialState(): AppState {
   return {
     engine: { status: "cold" },
-    screen: { phase: "idle", notice: null },
-    reveal: "cards",
+    screen: { phase: "idle", notice: null, confirmation: null },
   };
 }
 
@@ -132,20 +141,24 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
       return screen; // a newer frame's result is coming
     case "analysis-failed":
       if (screen.phase !== "analyzing") return screen;
-      return { phase: "idle", notice: guidanceFor(event.stage) };
+      return {
+        phase: "idle",
+        notice: guidanceFor(event.stage),
+        confirmation: null,
+      };
     case "capture-failed":
       // live has no capture affordance; a stray failure (e.g. a
       // stale still-capture rejection) must not tear the phase down
       return screen.phase === "live"
         ? screen
-        : { phase: "idle", notice: event.message };
+        : { phase: "idle", notice: event.message, confirmation: null };
     case "cancel":
       return screen.phase === "analyzing"
-        ? { phase: "idle", notice: null }
+        ? { phase: "idle", notice: null, confirmation: null }
         : screen;
     case "retake":
       return screen.phase === "results"
-        ? { phase: "idle", notice: null }
+        ? { phase: "idle", notice: null, confirmation: null }
         : screen;
     case "reanalyze":
       return screen.phase === "results"
@@ -173,7 +186,10 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
             emptySince: event.at,
             degraded: false,
             announceTick: 0,
-            lastConfirmation: null,
+            // mode transitions must speak ("Live mode."): entering
+            // live seeds the transient-confirmation channel, which
+            // the first live update then clears (value-stable text)
+            lastConfirmation: "Live mode.",
           }
         : screen;
     case "live-update-received": {
@@ -214,7 +230,13 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
       };
     }
     case "live-left":
-      return screen.phase === "live" ? { phase: "idle", notice: null } : screen;
+      return screen.phase === "live"
+        ? {
+            phase: "idle",
+            notice: event.notice ?? null,
+            confirmation: event.confirmation ?? null,
+          }
+        : screen;
     case "live-degraded":
       return screen.phase === "live"
         ? { ...screen, degraded: event.degraded }
@@ -249,6 +271,5 @@ export function reduce(state: AppState, event: AppEvent): AppState {
   return {
     engine: reduceEngine(state.engine, event),
     screen: reduceScreen(state.screen, event),
-    reveal: event.type === "set-reveal" ? event.mode : state.reveal,
   };
 }

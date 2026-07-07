@@ -34,6 +34,13 @@ function revealSummary(
         : `${plural(sets, "set")} found. ${plural(cards, "card")} read.`;
 }
 
+// The full view the announcer speaks from: the reducer's AppState
+// plus the App-held reveal rung (hoisted out of the reducer so an
+// engine Retry preserves it; see state.ts).
+export interface AnnounceState extends AppState {
+  reveal: RevealMode;
+}
+
 function engineText(engine: AppState["engine"]): string | null {
   if (engine.status === "loading") {
     const { loaded, total } = engine;
@@ -53,13 +60,18 @@ function engineText(engine: AppState["engine"]): string | null {
 // One string per app state for the persistent aria-live region.
 // Pure so it is trivially testable; App mutates the region's text,
 // never the region itself.
-export function announcementFor(state: AppState): string {
+export function announcementFor(state: AnnounceState): string {
   const engine = engineText(state.engine);
   if (engine) return engine;
   const { screen } = state;
   switch (screen.phase) {
-    case "idle":
-      return screen.notice ?? "";
+    case "idle": {
+      // the confirmation is the spoken-only "Still mode." transient
+      // a mode toggle leaves behind (state.ts live-left); it rides
+      // along with any visible notice
+      const parts = [screen.notice, screen.confirmation];
+      return parts.filter((part) => part !== null).join(" ");
+    }
     case "analyzing":
       return "Analyzing…";
     case "results": {

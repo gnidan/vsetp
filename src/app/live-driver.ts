@@ -257,10 +257,14 @@ export function createLiveDriver(deps: LiveDriverDeps): LiveDriver {
 }
 
 // Production schedule helper: prefers requestVideoFrameCallback (iOS
-// >= 15.4), falls back to requestAnimationFrame throttled to ~100ms
-// via a timestamp check, and finally to a plain interval. Called
-// once by the driver; the returned function self-perpetuates until
-// its cancel is invoked.
+// >= 15.4), falls back to requestAnimationFrame, and finally to a
+// plain interval. Both callback paths throttle to ~100ms via a
+// timestamp check (spec budget: ≤10 frames/s — rVFC fires per camera
+// frame, ~30fps, so it must skip most frames too, re-arming each
+// fire so the loop stays alive). Called once by the driver; the
+// returned function self-perpetuates until its cancel is invoked.
+const SCHEDULE_THROTTLE_MS = 100;
+
 export interface RVFCVideo {
   requestVideoFrameCallback?(
     cb: (now: number, metadata: unknown) => void,
@@ -276,9 +280,15 @@ export function createSchedule(
     return (cb: () => void) => {
       let cancelled = false;
       let handle: number | null = null;
-      const loop = () => {
+      // -Infinity so the very first frame ticks immediately (rVFC
+      // timestamps are performance.now()-based, origin-relative)
+      let lastRun = -Infinity;
+      const loop = (now: number) => {
         if (cancelled) return;
-        cb();
+        if (now - lastRun >= SCHEDULE_THROTTLE_MS) {
+          lastRun = now;
+          cb();
+        }
         if (!cancelled) handle = requestFrame(loop);
       };
       handle = requestFrame(loop);
@@ -289,14 +299,13 @@ export function createSchedule(
     };
   }
   if (typeof requestAnimationFrame === "function") {
-    const RAF_THROTTLE_MS = 100;
     return (cb: () => void) => {
       let cancelled = false;
       let lastRun = 0;
       let handle = requestAnimationFrame(loop);
       function loop(t: number): void {
         if (cancelled) return;
-        if (t - lastRun >= RAF_THROTTLE_MS) {
+        if (t - lastRun >= SCHEDULE_THROTTLE_MS) {
           lastRun = t;
           cb();
         }
@@ -309,7 +318,7 @@ export function createSchedule(
     };
   }
   return (cb: () => void) => {
-    const handle = setInterval(cb, 100);
+    const handle = setInterval(cb, SCHEDULE_THROTTLE_MS);
     return () => clearInterval(handle);
   };
 }

@@ -51,9 +51,7 @@ export function TrackGhosts({
       {ghosts.map((track) => (
         <img
           key={track.trackId}
-          className={`ghost track-ghost${
-            track.state === "uncertain-locked" ? " uncertain" : ""
-          }`}
+          className="ghost track-ghost"
           data-track-id={track.trackId}
           src={ghostFaceDataUrl(track.reading!)}
           alt=""
