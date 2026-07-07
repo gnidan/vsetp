@@ -92,10 +92,26 @@ describe("announcementFor", () => {
     expect(announcementFor(state)).toBe("");
   });
 
-  test("engine failure announces the failure copy", () => {
+  test("engine failure announces the specific message plus retry", () => {
     expect(
-      announcementFor(withEngine({ status: "failed", message: "x" })),
-    ).toMatch(/card reader/i);
+      announcementFor(
+        withEngine({
+          status: "failed",
+          message: "The card reader stopped responding.",
+        }),
+      ),
+    ).toBe("The card reader stopped responding. Use Retry to restart.");
+  });
+
+  test("a live stall announces the stall-specific message", () => {
+    expect(
+      announcementFor(
+        withEngine({
+          status: "failed",
+          message: "The card reader stalled.",
+        }),
+      ),
+    ).toBe("The card reader stalled. Use Retry to restart.");
   });
 
   test("analyzing phase announces progress", () => {
@@ -322,6 +338,7 @@ function liveState(
       lockedCount: 1,
       emptySince: null,
       degraded: false,
+      announceTick: 0,
       ...over,
     },
     reveal,
@@ -445,6 +462,24 @@ describe("announcementFor (live)", () => {
       );
       expect(announcementFor(after)).toBe(announcementFor(before));
     }
+  });
+
+  test("odd announce ticks re-speak no-cards via an invisible suffix", () => {
+    const empty: Partial<LiveScreen> = {
+      tracks: [],
+      lockedCount: 0,
+      emptySince: 0,
+      updatedAt: NO_CARDS_GRACE_MS,
+    };
+    const even = announcementFor(liveState({ ...empty, announceTick: 2 }));
+    const odd = announcementFor(liveState({ ...empty, announceTick: 3 }));
+    expect(even).toBe("No cards in view.");
+    expect(odd).toBe("No cards in view.\u00a0");
+  });
+
+  test("announce ticks never disturb a non-empty announcement", () => {
+    const state = liveState({ announceTick: 5 });
+    expect(announcementFor(state)).toBe("1 card read.");
   });
 
   test("no-cards message is stable across further churn too", () => {

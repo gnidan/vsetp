@@ -1,6 +1,8 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Capture } from "../app/capture";
 import { installDecision, isIosSafari } from "../app/install";
+import { createLiveCapturer } from "../app/live-capture";
+import { createLiveDriver, createSchedule } from "../app/live-driver";
 import { initialState, reduce } from "../app/state";
 import type { WorkerClient } from "../app/worker-client";
 import {
@@ -8,13 +10,15 @@ import {
   DisposedError,
   createWorkerClient,
 } from "../app/worker-client";
-import { announcementFor } from "./announce";
+import { LIVE_NUDGE_MS, announcementFor } from "./announce";
 import { AnalysisView } from "./AnalysisView";
-import { CameraProvider } from "./CameraProvider";
+import { CameraProvider, useCamera } from "./CameraProvider";
 import { CaptureView } from "./CaptureView";
-import { Hud } from "./Hud";
+import { Hud, LiveHud } from "./Hud";
+import { LiveView } from "./LiveView";
 import { PresenceBorder } from "./PresenceBorder";
-import { SrResults } from "./SrResults";
+import { createSetColorMap } from "./set-colors";
+import { SrLiveResults, SrResults } from "./SrResults";
 
 const INSTALL_DISMISSED_KEY = "vsetp-install-dismissed";
 
@@ -80,6 +84,14 @@ function Session({
   onRetry(): void;
 }) {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
+  const { camera, videoRef } = useCamera();
+  // ambient by default: the live session starts as soon as the
+  // camera grants. "still" pauses it for the shutter flow — Task 6
+  // wires the one-way stop; Task 7 owns the full serialized toggle.
+  const [mode, setMode] = useState<"live" | "still">("live");
+  // session-scoped: identities keep their line colors across live
+  // exits/re-entries within this Session (spec)
+  const setColorsRef = useRef(createSetColorMap());
   const clientRef = useRef<WorkerClient | null>(null);
   const lastCapture = useRef<Capture | null>(null);
   const lastCountedCapture = useRef<Capture | null>(null);
@@ -123,6 +135,81 @@ function Session({
       if (clientRef.current === client) clientRef.current = null;
     };
   }, []);
+
+  // Live driver lifecycle: one driver per continuous live stretch.
+  // Entry needs an idle screen (live-entered is phase-gated), but the
+  // effect must NOT key on the phase alone — live-entered flips it to
+  // "live", which would immediately tear the driver back down. So
+  // wantLive stays true across idle → live and the driver runs until
+  // the mode toggles, the camera drops, or the Session unmounts.
+  const wantLive =
+    mode === "live" &&
+    camera === "live" &&
+    (state.screen.phase === "idle" || state.screen.phase === "live");
+  useEffect(() => {
+    if (!wantLive) return;
+    const client = clientRef.current;
+    const video = videoRef.current;
+    if (!client || !video) return;
+    // driver-per-effect-run (the client-per-mount precedent): a
+    // StrictMode replay stops the first driver in cleanup and starts
+    // a fresh one, and the disposed first client's rejections are
+    // lifecycle, not failures.
+    const driver = createLiveDriver({
+      client,
+      video,
+      capture: createLiveCapturer(),
+      onUpdate: (update) =>
+        dispatch({
+          type: "live-update-received",
+          tracks: update.tracks,
+          at: Date.now(),
+        }),
+      onDegraded: (degraded) => dispatch({ type: "live-degraded", degraded }),
+      onStall: () => {
+        // a stalled driver stays "started" and never self-recovers:
+        // stop it, then surface the failure overlay. Retry replaces
+        // the Session (fresh driver); the camera survives via the
+        // provider.
+        void driver.stop();
+        dispatch({
+          type: "engine-failed",
+          message: "The card reader stalled.",
+        });
+      },
+      schedule: createSchedule(video),
+      now: () => performance.now(),
+    });
+    dispatch({ type: "live-entered", at: Date.now() });
+    const started = driver.start().catch((error: Error) => {
+      if (error instanceof DisposedError) return; // mount lifecycle
+      dispatch({
+        type: "engine-failed",
+        message: engineFailureMessage(error),
+      });
+    });
+    return () => {
+      // start() may still be in flight (StrictMode replay): chain the
+      // stop behind it so the started session is always torn down
+      void started.then(() => driver.stop()).catch(() => {});
+      dispatch({ type: "live-left" });
+    };
+  }, [wantLive, videoRef]);
+
+  // Slow-cadence re-announce while the live view sits empty: bump the
+  // reducer's announceTick so announcementFor can alternate the
+  // "No cards in view." text (see the comment there for why the text
+  // itself must change).
+  const liveEmpty =
+    state.screen.phase === "live" && state.screen.tracks.length === 0;
+  useEffect(() => {
+    if (!liveEmpty) return;
+    const timer = setInterval(
+      () => dispatch({ type: "live-nudge" }),
+      LIVE_NUDGE_MS,
+    );
+    return () => clearInterval(timer);
+  }, [liveEmpty]);
 
   // push this session's announcement text up into App's persistent
   // live region (the region itself must never remount; see App)
@@ -340,6 +427,43 @@ function Session({
               sets={screen.sets}
               selected={screen.selected}
               revealSets={reveal === "sets"}
+            />
+          </>
+        )}
+        {screen.phase === "live" && (
+          <>
+            {/* spoiler parity at the App boundary: below the "sets"
+                reveal, the live stage never receives set data at
+                all; presence mode gets ONLY the debounced boolean */}
+            <LiveView
+              tracks={screen.tracks}
+              liveSets={reveal === "sets" ? screen.liveSets : []}
+              selected={reveal === "sets" ? screen.selected : null}
+              colorFor={setColorsRef.current.colorFor}
+              updateCount={screen.updateCount}
+              degraded={screen.degraded}
+            />
+            {reveal === "presence" && (
+              <PresenceBorder present={screen.presence.shown} />
+            )}
+            <div className="hud-stack">
+              <LiveHud
+                lockedCount={screen.lockedCount}
+                hasSet={reveal === "presence" ? screen.presence.shown : false}
+                setIds={
+                  reveal === "sets" ? screen.liveSets.map((set) => set.id) : []
+                }
+                selected={reveal === "sets" ? screen.selected : null}
+                reveal={reveal}
+                onSelect={(id) => dispatch({ type: "select-set", id })}
+                onReveal={(m) => dispatch({ type: "set-reveal", mode: m })}
+                onToggleMode={() => setMode("still")}
+              />
+            </div>
+            <SrLiveResults
+              tracks={screen.tracks}
+              liveSets={reveal === "sets" ? screen.liveSets : []}
+              selected={reveal === "sets" ? screen.selected : null}
             />
           </>
         )}

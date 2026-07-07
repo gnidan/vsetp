@@ -51,6 +51,9 @@ export type Screen =
       lockedCount: number;
       emptySince: number | null; // wall ms of zero-track start
       degraded: boolean; // adaptation ladder below 768
+      // slow-cadence re-announce counter for the empty live view;
+      // bumped by Session's nudge timer (see announcementFor)
+      announceTick: number;
     };
 
 // Graduated spoiler ladder: what the results screen may disclose.
@@ -80,7 +83,8 @@ export type AppEvent =
   | { type: "live-entered"; at: number }
   | { type: "live-update-received"; tracks: Track[]; at: number }
   | { type: "live-left" }
-  | { type: "live-degraded"; degraded: boolean };
+  | { type: "live-degraded"; degraded: boolean }
+  | { type: "live-nudge" };
 
 export function initialState(): AppState {
   return {
@@ -125,7 +129,11 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
       if (screen.phase !== "analyzing") return screen;
       return { phase: "idle", notice: guidanceFor(event.stage) };
     case "capture-failed":
-      return { phase: "idle", notice: event.message };
+      // live has no capture affordance; a stray failure (e.g. a
+      // stale still-capture rejection) must not tear the phase down
+      return screen.phase === "live"
+        ? screen
+        : { phase: "idle", notice: event.message };
     case "cancel":
       return screen.phase === "analyzing"
         ? { phase: "idle", notice: null }
@@ -159,6 +167,7 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
             lockedCount: 0,
             emptySince: event.at,
             degraded: false,
+            announceTick: 0,
           }
         : screen;
     case "live-update-received": {
@@ -200,6 +209,10 @@ function reduceScreen(screen: Screen, event: AppEvent): Screen {
     case "live-degraded":
       return screen.phase === "live"
         ? { ...screen, degraded: event.degraded }
+        : screen;
+    case "live-nudge":
+      return screen.phase === "live"
+        ? { ...screen, announceTick: screen.announceTick + 1 }
         : screen;
     default:
       return screen;

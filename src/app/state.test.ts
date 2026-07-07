@@ -376,6 +376,7 @@ describe("reduce (live phase)", () => {
       lockedCount: 0,
       emptySince: 100,
       degraded: false,
+      announceTick: 0,
     });
   });
 
@@ -519,6 +520,37 @@ describe("reduce (live phase)", () => {
       degraded: true,
     });
     expect(idle.screen).toEqual({ phase: "idle", notice: null });
+  });
+
+  test("live-nudge bumps the announce tick in live only", () => {
+    let state = reduce(liveState(), { type: "live-nudge" });
+    expect(live(state).announceTick).toBe(1);
+    state = reduce(state, { type: "live-nudge" });
+    expect(live(state).announceTick).toBe(2);
+    const idle = reduce(initialState(), { type: "live-nudge" });
+    expect(idle.screen).toEqual({ phase: "idle", notice: null });
+  });
+
+  test("a live update does not reset the announce tick", () => {
+    let state = reduce(liveState(), { type: "live-nudge" });
+    state = updated(state, SET_TRACKS, 50);
+    expect(live(state).announceTick).toBe(1);
+  });
+
+  test("capture-failed is ignored during live", () => {
+    const state = reduce(liveState(), {
+      type: "capture-failed",
+      message: "nope",
+    });
+    expect(state.screen.phase).toBe("live");
+  });
+
+  test("capture-failed lands idle with the message otherwise", () => {
+    const state = reduce(initialState(), {
+      type: "capture-failed",
+      message: "nope",
+    });
+    expect(state.screen).toEqual({ phase: "idle", notice: "nope" });
   });
 
   test("captured transitions live to analyzing (total reducer)", () => {

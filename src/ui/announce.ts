@@ -5,6 +5,10 @@ import { edgeNotice } from "../app/guidance";
 // speaks "No cards in view." in every reveal mode (aim-by-audio).
 export const NO_CARDS_GRACE_MS = 4000;
 
+// Cadence of Session's live-nudge timer: how often the empty-view
+// guidance re-announces while the table stays out of frame.
+export const LIVE_NUDGE_MS = 10_000;
+
 export function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
@@ -39,7 +43,9 @@ function engineText(engine: AppState["engine"]): string | null {
     return `Loading card reader… ${amount}`;
   }
   if (engine.status === "failed") {
-    return "The card reader stopped working. Use Retry to restart.";
+    // speak the specific failure (the overlay's text), so a live
+    // stall says "stalled", not a generic "stopped working"
+    return `${engine.message} Use Retry to restart.`;
   }
   return null;
 }
@@ -78,7 +84,15 @@ export function announcementFor(state: AppState): string {
         updatedAt !== null &&
         updatedAt - emptySince >= NO_CARDS_GRACE_MS
       ) {
-        return "No cards in view.";
+        // aria-live regions only re-speak when the TEXT changes, so
+        // a persistently-empty view would announce exactly once.
+        // Session bumps announceTick every LIVE_NUDGE_MS while empty;
+        // alternating an invisible trailing non-breaking space makes
+        // the string differ tick to tick, re-announcing the guidance
+        // without altering what a screen reader actually says.
+        return screen.announceTick % 2 === 1
+          ? "No cards in view.\u00a0"
+          : "No cards in view.";
       }
       // quiet until the first card locks ("{n} cards read." fires
       // when lockedCount first reaches n > 0)
