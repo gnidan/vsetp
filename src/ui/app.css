@@ -63,11 +63,20 @@ body {
    above .stage) in the tree so the camera survives a Retry remount.
    Positioned by the viewport using the SAME safe-area env() values
    as .app's padding, which makes this box coincide with .stage's
-   rect exactly without being its DOM descendant. */
+   rect exactly without being its DOM descendant.
+
+   A <video> is a replaced element: insets alone never stretch it
+   (auto width/height fall back to the intrinsic camera resolution,
+   ignoring the far insets), so the box must be sized EXPLICITLY.
+   With position: fixed the percentages resolve against the viewport;
+   calc() subtracts the safe-area insets so the top/left offsets plus
+   these dimensions land exactly on .stage's rect. */
 .camera-video {
   position: fixed;
-  inset: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  top: env(safe-area-inset-top);
+  left: env(safe-area-inset-left);
+  width: calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right));
+  height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   object-fit: cover;
 }
 .frame-space {
@@ -152,6 +161,7 @@ body {
 .secondary {
   font-size: 1rem;
   padding: 0.7rem 1.4rem;
+  min-height: 44px; /* touch-target floor (plan constraint) */
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   background: transparent;
