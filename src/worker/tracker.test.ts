@@ -352,6 +352,131 @@ describe("consensus grace", () => {
   });
 });
 
+describe("area-unlock hysteresis", () => {
+  function lockDefault(table: ReturnType<typeof createTrackTable>) {
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    for (let i = 0; i < CONSENSUS_TO_LOCK; i++) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, CARD_A);
+    }
+    return id;
+  }
+
+  it("a single oversized frame is jitter-immune (stays locked)", () => {
+    const table = createTrackTable();
+    const id = lockDefault(table);
+    expect(table.tracks[0].state).toBe("locked");
+    // locked area is 90*58=5220; 150*105=15750 is > 2x, but still
+    // IoU-matched (not a centroid fallback)
+    step(table, [rect(10, 10, 150, 105)]);
+    expect(table.tracks[0].id).toBe(id);
+    expect(table.tracks[0].state).toBe("locked");
+    // one big frame alone must not unlock, even after it passes
+    step(table, [rect(10, 10)]);
+    expect(table.tracks[0].state).toBe("locked");
+  });
+
+  it(
+    "two consecutive oversized frames demote to reading, keeping " +
+      "the displayed reading and face memory",
+    () => {
+      const table = createTrackTable();
+      const id = lockDefault(table);
+      const key = cardKey(table.tracks[0].reading!);
+      expect(table.faceMemory.has(key)).toBe(true);
+
+      step(table, [rect(10, 10, 150, 105)]);
+      expect(table.tracks[0].state).toBe("locked"); // 1st: still ok
+      step(table, [rect(10, 10, 150, 105)]);
+
+      expect(table.tracks[0].id).toBe(id);
+      expect(table.tracks[0].state).toBe("reading");
+      expect(table.tracks[0].reading).not.toBeNull();
+      expect(cardKey(table.tracks[0].reading!)).toBe(key);
+      expect(table.faceMemory.has(key)).toBe(true);
+    },
+  );
+});
+
+describe("locked-track low-confidence match forces re-verify", () => {
+  it(
+    "centroid-fallback match resets lastVerified for immediate " +
+      "re-check next frame",
+    () => {
+      const table = createTrackTable();
+      step(table, [rect(10, 10)]);
+      const id = table.tracks[0].id;
+      for (let i = 0; i < CONSENSUS_TO_LOCK; i++) {
+        step(table, [rect(10, 10)]);
+        classify(table, id, CARD_A);
+      }
+      expect(table.tracks[0].state).toBe("locked");
+
+      // displaced past the IoU gate (zero AABB overlap) but still
+      // inside the centroid fallback gate
+      step(table, [rect(105, 10)]);
+      expect(table.tracks).toHaveLength(1);
+      expect(table.tracks[0].id).toBe(id);
+      expect(table.tracks[0].state).toBe("locked");
+
+      // next frame: selected despite being locked and freshly
+      // classified (normally REVERIFY_INTERVAL_FRAMES from due)
+      const out = step(table, [rect(105, 10)]);
+      expect(out.toClassify.map((s) => s.id)).toContain(id);
+    },
+  );
+});
+
+describe("correct mark", () => {
+  it("promotes uncertain-locked to locked, seeding face memory", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    const seq = Array.from({ length: MAX_CONSENSUS_ATTEMPTS }, (_, i) =>
+      i % 2 === 0 ? CARD_A : CARD_B,
+    );
+    for (const card of seq) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, card);
+    }
+    expect(table.tracks[0].state).toBe("uncertain-locked");
+
+    const key = cardKey(table.tracks[0].reading!);
+    step(table, [rect(10, 10)], [{ type: "correct", key }]);
+
+    expect(table.tracks[0].id).toBe(id);
+    expect(table.tracks[0].state).toBe("locked");
+    expect(table.faceMemory.has(key)).toBe(true);
+    expect(cardKey(table.faceMemory.get(key)!.card)).toBe(key);
+  });
+
+  it("on an already-locked track, refreshes lastVerified cadence", () => {
+    const table = createTrackTable();
+    step(table, [rect(10, 10)]);
+    const id = table.tracks[0].id;
+    for (let i = 0; i < CONSENSUS_TO_LOCK; i++) {
+      step(table, [rect(10, 10)]);
+      classify(table, id, CARD_A);
+    }
+    expect(table.tracks[0].state).toBe("locked");
+    const oldLastVerified = table.tracks[0].lastVerified;
+    const oldDueOrdinal = oldLastVerified + REVERIFY_INTERVAL_FRAMES;
+
+    for (let i = 0; i < 5; i++) step(table, [rect(10, 10)]);
+    step(table, [rect(10, 10)], [{ type: "correct", key: cardKey(CARD_A) }]);
+    expect(table.tracks[0].lastVerified).toBeGreaterThan(oldLastVerified);
+
+    let out = step(table, [rect(10, 10)]);
+    while (table.ordinal < oldDueOrdinal) {
+      out = step(table, [rect(10, 10)]);
+    }
+    // NOT selected at the ordinal that would have been due under
+    // the OLD (pre-correct) lastVerified — the mark reset cadence
+    expect(out.toClassify.map((s) => s.id)).not.toContain(id);
+  });
+});
+
 describe("projectTracks", () => {
   it("projects wire tracks without nulls", () => {
     const table = createTrackTable();
